@@ -1,5 +1,7 @@
 # SkyLite
 
+> ⚠️ **Early alpha.** The mod is at an early stage of development and may be unstable: expect bugs and notable changes between versions.
+
 A tiny, performance-first client-side Fabric mod for Minecraft Java: a compact HUD for Hypixel SkyBlock. HP, mana and XP bars instead of the vanilla elements, info lines from the sidebar (Defense, area, Cookie Buff and God Potion timers, purse, bits), a Speed % plate, FPS and real ping in a corner, and rare-drop alerts. Everything is drawn from values the server already sends to your client — no mixins, no textures, no packets of its own.
 
 Supported game version: **26.3** (Fabric).
