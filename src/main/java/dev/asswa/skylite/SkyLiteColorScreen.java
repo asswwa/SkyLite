@@ -2,19 +2,21 @@ package dev.asswa.skylite;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractSliderButton;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-import java.util.function.IntConsumer;
-
 /**
- * Tiny built-in RGB colour picker (no Cloth Config). Opened by right-clicking a bar in the
- * HUD editor, or from the colour rows of the config screen. Changes are applied live and
- * saved when the screen closes.
+ * Flat RGB colour picker (Athen-like modal, {@link SkyLiteUi}). Opened by right-clicking a
+ * bar in the HUD editor or from the colour rows of the config screen. Changes are applied
+ * live to the HUD; "Save" (or Esc) keeps them, "Cancel" restores the colour the picker was
+ * opened with. The file is written on close.
  */
 public final class SkyLiteColorScreen extends Screen {
+    private static final String[] CHANNELS = {"R", "G", "B"};
+    // Channel track gradients (dark end -> full-intensity end), matching the mock-up.
+    private static final int[] GRAD_FROM = {0xFF1E0C0C, 0xFF0C1E0E, 0xFF0C0E1E};
+    private static final int[] GRAD_TO = {0xFFFF4646, 0xFF5AFF5A, 0xFF5A6EFF};
+
     private final Screen parent;
     private final SkyLiteConfig cfg;
     private final int which; // 0 HP, 1 mana, 2 XP, 3 numbers
@@ -22,10 +24,11 @@ public final class SkyLiteColorScreen extends Screen {
     private int red;
     private int green;
     private int blue;
+    private final int initialRgb; // "Cancel" restores this
 
-    // Title resolved on init, not on every frame.
-    private String titleText;
-    private int titleW;
+    private int modalX, modalY, modalW, modalH, innerX, innerW;
+    private int shownRgb = Integer.MIN_VALUE;
+    private String shownHex = "#000000";
 
     public SkyLiteColorScreen(Screen parent, SkyLiteConfig cfg, int which) {
         super(Component.translatable(labelKey(which)));
@@ -36,6 +39,7 @@ public final class SkyLiteColorScreen extends Screen {
         this.red = (rgb >> 16) & 0xFF;
         this.green = (rgb >> 8) & 0xFF;
         this.blue = rgb & 0xFF;
+        this.initialRgb = rgb;
     }
 
     private static String labelKey(int which) {
@@ -56,32 +60,49 @@ public final class SkyLiteColorScreen extends Screen {
         };
     }
 
+    private int pickedRgb() {
+        return (red << 16) | (green << 8) | blue;
+    }
+
     @Override
     protected void init() {
-        int cx = this.width / 2;
-        int y = this.height / 2 - 46;
-        addRenderableWidget(new ChannelSlider(cx - 100, y, 200, 20, "R", red, v -> {
+        modalW = Math.min(304, this.width - 32);
+        modalH = 222;
+        modalX = (this.width - modalW) / 2;
+        modalY = (this.height - modalH) / 2;
+        innerX = modalX + 12;
+        innerW = modalW - 24;
+
+        int sliderX = innerX + 40;
+        int sliderW = Math.max(80, innerW - 40 - 48);
+        int firstRow = modalY + 82; // "R" label row; each row is 36px apart
+        addRenderableWidget(new SkyLiteUi.Slider(sliderX, firstRow + 10, sliderW, 20, 0, 255, red,
+                GRAD_FROM[0], GRAD_TO[0], v -> {
             red = v;
             apply();
         }));
-        addRenderableWidget(new ChannelSlider(cx - 100, y + 26, 200, 20, "G", green, v -> {
+        addRenderableWidget(new SkyLiteUi.Slider(sliderX, firstRow + 46, sliderW, 20, 0, 255, green,
+                GRAD_FROM[1], GRAD_TO[1], v -> {
             green = v;
             apply();
         }));
-        addRenderableWidget(new ChannelSlider(cx - 100, y + 52, 200, 20, "B", blue, v -> {
+        addRenderableWidget(new SkyLiteUi.Slider(sliderX, firstRow + 82, sliderW, 20, 0, 255, blue,
+                GRAD_FROM[2], GRAD_TO[2], v -> {
             blue = v;
             apply();
         }));
-        addRenderableWidget(Button.builder(Component.translatable("skylite.config.done"), b -> onClose())
-                .bounds(cx - 50, y + 102, 100, 20).build());
 
-        titleText = this.title.getString();
-        titleW = font.width(titleText);
+        int buttonW = Math.max(60, (innerW - 12) / 2);
+        int footY = modalY + modalH - 36 + 8;
+        addRenderableWidget(new SkyLiteUi.Btn(innerX, footY, buttonW, 20,
+                tr("skylite.config.cancel"), SkyLiteUi.Btn.DANGER, this::cancel));
+        addRenderableWidget(new SkyLiteUi.Btn(innerX + buttonW + 12, footY, buttonW, 20,
+                tr("skylite.config.save"), SkyLiteUi.Btn.PRIMARY, this::onClose));
     }
 
     /** Writes the picked colour into the config (live preview on the HUD behind). */
     private void apply() {
-        String hex = SkyLiteConfig.toHex((red << 16) | (green << 8) | blue);
+        String hex = SkyLiteConfig.toHex(pickedRgb());
         switch (which) {
             case 0 -> cfg.healthColor = hex;
             case 1 -> cfg.manaColor = hex;
@@ -91,6 +112,16 @@ public final class SkyLiteColorScreen extends Screen {
         cfg.applyColors();
     }
 
+    /** "Cancel": restores the colour the picker was opened with, then closes. */
+    private void cancel() {
+        red = (initialRgb >> 16) & 0xFF;
+        green = (initialRgb >> 8) & 0xFF;
+        blue = initialRgb & 0xFF;
+        apply();
+        cfg.save();
+        Minecraft.getInstance().setScreenAndShow(parent);
+    }
+
     @Override
     public void extractBackground(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, g.guiWidth(), g.guiHeight(), 0xCC000000);
@@ -98,20 +129,37 @@ public final class SkyLiteColorScreen extends Screen {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        int rgb = pickedRgb();
+        if (rgb != shownRgb) {
+            shownRgb = rgb;
+            shownHex = String.format("#%06X", rgb);
+        }
+
+        // modal frame
+        SkyLiteUi.box(g, modalX, modalY, modalW, modalH, SkyLiteUi.PANEL_BG_SOLID, SkyLiteUi.PANEL_BORDER);
+        g.text(font, this.title.getString(), modalX + 12, modalY + 10, SkyLiteUi.TEXT, true);
+        g.fill(modalX + 1, modalY + 28, modalX + modalW - 1, modalY + 29, SkyLiteUi.SEP);
+
+        // preview: the picked colour + its hex
+        int py = modalY + 38;
+        int hexW = 96;
+        int swatchW = innerW - 8 - hexW;
+        g.fill(innerX, py, innerX + swatchW, py + 32, 0xFF000000 | rgb);
+        SkyLiteUi.border(g, innerX, py, swatchW, 32, 0x5A000000);
+        SkyLiteUi.box(g, innerX + swatchW + 8, py, hexW, 32, SkyLiteUi.CONTROL_BG, SkyLiteUi.CONTROL_BORDER);
+        g.text(font, shownHex, innerX + swatchW + 8 + (hexW - font.width(shownHex)) / 2,
+                py + 12, SkyLiteUi.TEXT, true);
+
+        // channel labels (the sliders themselves are widgets)
+        for (int i = 0; i < CHANNELS.length; i++) {
+            g.text(font, CHANNELS[i], innerX, modalY + 82 + i * 36, SkyLiteUi.TEXT_DIM, true);
+        }
+
+        // footer separator
+        int footSep = modalY + modalH - 36;
+        g.fill(modalX + 1, footSep, modalX + modalW - 1, footSep + 1, SkyLiteUi.SEP);
+
         super.extractRenderState(g, mouseX, mouseY, partialTick);
-
-        g.text(font, titleText, (this.width - titleW) / 2, 12, 0xFFFFFFFF, true);
-
-        // Preview swatch: white border, black inner edge, the colour itself.
-        int cx = this.width / 2;
-        int py = this.height / 2 + 34;
-        int rgb = (red << 16) | (green << 8) | blue;
-        g.fill(cx - 71, py - 1, cx - 29, py + 21, 0xFFFFFFFF);
-        g.fill(cx - 70, py, cx - 30, py + 20, 0xFF000000);
-        g.fill(cx - 69, py + 1, cx - 31, py + 19, 0xFF000000 | rgb);
-
-        String hex = String.format("#%06X", rgb);
-        g.text(font, hex, cx - 18, py + 6, 0xFFFFFFFF, true);
     }
 
     @Override
@@ -121,33 +169,7 @@ public final class SkyLiteColorScreen extends Screen {
         Minecraft.getInstance().setScreenAndShow(parent);
     }
 
-    /** 0..255 slider for one colour channel. */
-    private static final class ChannelSlider extends AbstractSliderButton {
-        private final String name;
-        private final IntConsumer onValue;
-
-        ChannelSlider(int x, int y, int w, int h, String name, int value, IntConsumer onValue) {
-            super(x, y, w, h, Component.literal(name), value / 255.0);
-            this.name = name;
-            this.onValue = onValue;
-            updateMessage();
-        }
-
-        private int current() {
-            return (int) Math.round(value * 255.0);
-        }
-
-        @Override
-        protected void updateMessage() {
-            if (name == null) {
-                return; // defensive: the super constructor must not hit unset fields
-            }
-            setMessage(Component.literal(name + ": " + current()));
-        }
-
-        @Override
-        protected void applyValue() {
-            onValue.accept(current());
-        }
+    private static String tr(String key) {
+        return Component.translatable(key).getString();
     }
 }

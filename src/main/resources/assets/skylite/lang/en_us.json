@@ -14,6 +14,10 @@
   "skylite.config.category.alerts": "Alerts",
   "skylite.config.category.hud": "Vanilla HUD replacement",
   "skylite.config.category.color": "Color",
+  "skylite.config.nav.bars": "Bars",
+  "skylite.config.nav.info": "Info lines",
+  "skylite.config.nav.alerts": "Alerts",
+  "skylite.config.nav.hud": "Vanilla HUD",
 
   "skylite.config.bars.hint": "Position and size are edited in game: F8 (\"Move the bars\") or /skylite edit. LMB — drag, wheel — width of the bar under the cursor, Ctrl+wheel — its thickness, RMB — color.",
   "skylite.config.bars.color_hp": "HP color",
@@ -70,6 +74,9 @@
   "skylite.editor.hint1": "LMB — drag · wheel — width · Ctrl+wheel — thickness · RMB — color",
   "skylite.editor.hint2": "ESC or \"Done\" — save and exit",
   "skylite.editor.hint3": "The Speed plate is dragged the same way; toggle it in the settings.",
+  "skylite.config.move_hud": "Move HUD",
+  "skylite.config.save": "Save",
+  "skylite.config.cancel": "Cancel",
   "skylite.config.done": "Done",
   "skylite.config.on": "ON",
   "skylite.config.off": "OFF"

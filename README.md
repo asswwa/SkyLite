@@ -16,7 +16,7 @@ Supported game version: **26.3** (Fabric).
 - **Info lines.** Defense, area/island, Cookie Buff and God Potion timers, purse, bits — parsed from the sidebar and action bar, each line on its own toggle.
 - **FPS and real ping.** In any corner. The ping is measured with the same tiny status request the multiplayer server list uses, on a background thread — because Hypixel spoofs the tab-list ping on game servers (it always reads “1”).
 - **Alerts (F7).** A sound and an on-screen flash when a chat message contains any of your keywords (`RARE DROP!`, …); keywords are comma-separated.
-- **Its own config screen.** Vanilla widgets only — no Cloth Config needed; Mod Menu is optional and only adds an entry button.
+- **Its own config screen.** A flat dark UI with a category sidebar (Bars, Info lines, Alerts, Vanilla HUD) and a modal colour picker — vanilla widgets only, no Cloth Config; Mod Menu is optional and only adds an entry button.
 - **Localized.** English and Russian UI.
 
 ## Keys & commands
@@ -50,7 +50,7 @@ Optional: **Mod Menu** — adds a SkyLite button to the in-game mod list (SkyLit
 JDK 25 and Gradle are required. For now the only target is 26.3:
 
 ```bash
-bash tools/build_all.sh   # → dist/skylite-0.1.0+26.3.jar
+bash tools/build_all.sh   # → dist/skylite-0.1.5+26.3.jar
 ```
 
 `libs/modmenu-21.0.0.jar` is a compile-time-only dependency (the Mod Menu entry button) and is never bundled into the jar.

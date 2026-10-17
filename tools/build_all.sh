@@ -7,6 +7,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Версия берётся из gradle.properties, чтобы не забывать её обновлять.
+version=$(sed -n 's/^mod_version=//p' gradle.properties)
+
 mkdir -p dist
 
 # build <суффикс> <mc-версия> <fabric-api> <диапазон игры> <совместимость> [доп. -P...]
@@ -16,7 +19,7 @@ build() {
     echo "########## SkyLite для $suffix ##########"
     gradle build -Pminecraft_version="$mc" -Pfabric_version="$api" \
         -Pminecraft_range="$range" -Pmc_compat="$compat" "$@" --console=plain | grep -E "BUILD (SUCCESSFUL|FAILED)"
-    cp build/libs/skylite-0.1.0.jar "dist/skylite-0.1.0+$suffix.jar"
+    cp "build/libs/skylite-$version.jar" "dist/skylite-$version+$suffix.jar"
 }
 
 # Пока цель одна — 26.3 (инстанс "FPS Modpack").

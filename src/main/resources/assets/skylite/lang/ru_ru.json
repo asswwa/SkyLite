@@ -14,6 +14,10 @@
   "skylite.config.category.alerts": "Алерты",
   "skylite.config.category.hud": "Замена ванильного HUD",
   "skylite.config.category.color": "Цвет",
+  "skylite.config.nav.bars": "Полоски",
+  "skylite.config.nav.info": "Инфо-строки",
+  "skylite.config.nav.alerts": "Алерты",
+  "skylite.config.nav.hud": "Замена HUD",
 
   "skylite.config.bars.hint": "Положение и размер полосок меняются в игре: F8 («Переместить полоски») или /skylite edit. ЛКМ — двигать, колесо — ширина полоски под курсором, Ctrl+колесо — её толщина, ПКМ — цвет.",
   "skylite.config.bars.color_hp": "Цвет HP",
@@ -70,6 +74,9 @@
   "skylite.editor.hint1": "ЛКМ — двигать · колесо — ширина · Ctrl+колесо — толщина · ПКМ — цвет",
   "skylite.editor.hint2": "ESC или «Готово» — сохранить и выйти",
   "skylite.editor.hint3": "Плашку скорости двигаешь так же; вкл/выкл — в настройках.",
+  "skylite.config.move_hud": "Переместить HUD",
+  "skylite.config.save": "Сохранить",
+  "skylite.config.cancel": "Отмена",
   "skylite.config.done": "Готово",
   "skylite.config.on": "ВКЛ",
   "skylite.config.off": "ВЫКЛ"

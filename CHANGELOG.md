@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5] — 2026-10-18
+
+**Interface**
+- The config screen is restyled into a flat dark UI: a category sidebar (Bars / Info lines /
+  Alerts / Vanilla HUD), 1px-bordered panels, flat buttons, sliders, toggles and dropdowns;
+  the layout adapts to the window size.
+- The colour picker is now a modal dialog with channel gradients, a live preview and Cancel / Save.
+- Both screens are still vanilla widgets only (SkyLite ships its own tiny widget toolkit) — no
+  Cloth Config, no textures; Mod Menu remains optional.
+
 ## [0.1.0] — 2026-10-18
 
 First public alpha (Minecraft 26.3, Fabric).
