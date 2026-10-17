@@ -1,5 +1,7 @@
 # SkyLite
 
+> ⚠️ **Early alpha.** The mod is at an early stage of development and may be unstable: expect bugs and notable changes between versions.
+
 A tiny, performance-first client-side Fabric mod for Minecraft Java: a compact HUD and alerts for Hypixel SkyBlock. Everything is drawn from values the server already sends to your client — no packets of its own, no mixins, no textures, no custom models.
 
 ## Features
@@ -31,8 +33,13 @@ Pick the file that matches your game version:
 
 ## Requirements
 
-- **Fabric Loader 0.19.5+** and **Fabric API** for 26.3.
-- **Java 25** — launchers usually manage this automatically.
+- **Minecraft 26.3** — the only supported version (Fabric); no other game lines for now.
+- **Fabric Loader 0.19.5 or newer.**
+- **Fabric API** — required; without it the mod doesn't load.
+- **Java 25 or newer** — launchers usually install it automatically for this game version.
+- **Client-side only** — install it on the client; the server needs nothing.
+
+Optional: **Mod Menu** — adds a SkyLite button to the in-game mod list (SkyLite works fine without it).
 
 ## How to use
 
