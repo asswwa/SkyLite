@@ -29,6 +29,16 @@ Supported game version: **26.3** (Fabric).
 
 `/skylite` — config screen · `/skylite edit` — editor · `/skylite hud`, `/skylite alerts` — toggles.
 
+## Requirements
+
+- **Minecraft 26.3** — the only supported version (Fabric); no other game lines for now.
+- **Fabric Loader 0.19.5 or newer.**
+- **Fabric API** — required; without it the mod doesn't load.
+- **Java 25 or newer** — launchers usually install it automatically for this game version.
+- **Client-side only** — install it on the client; the server needs nothing.
+
+Optional: **Mod Menu** — adds a SkyLite button to the in-game mod list (SkyLite works fine without it).
+
 ## Installation
 
 1. Fabric Loader for 26.3 and **Fabric API** — into the `mods` folder.
