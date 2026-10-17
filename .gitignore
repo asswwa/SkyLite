@@ -1,0 +1,22 @@
+# Build output
+build/
+.gradle/
+run/
+dist/
+
+# Local compile-only jars (only Mod Menu is needed to build; never bundled)
+libs/*
+!libs/modmenu-21.0.0.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

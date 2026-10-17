@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "skylite",
+  "version": "${version}",
+  "name": "SkyLite",
+  "description": "Minimal client-side HUD and alerts for Hypixel SkyBlock: HP/mana/XP bars, server info lines, Speed %, real ping, FPS and rare-drop alerts. No mixins, no textures, tiny footprint.",
+  "authors": ["asswa"],
+  "license": "MIT",
+  "icon": "assets/skylite/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.asswa.skylite.SkyLiteClient"
+    ],
+    "modmenu": [
+      "dev.asswa.skylite.ModMenuIntegration"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "${minecraft_range}",
+    "java": ">=${java_dep}",
+    "fabric-api": "*"
+  },
+  "recommends": {
+    "modmenu": "*"
+  },
+  "contact": {
+    "sources": "https://github.com/asswwa/SkyLite",
+    "issues": "https://github.com/asswwa/SkyLite/issues"
+  }
+}

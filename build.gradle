@@ -1,0 +1,90 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        mavenCentral()
+    }
+    dependencies {
+        // Same version as in the TranslateBar project; resolved here so the plugin id can be chosen below.
+        classpath 'net.fabricmc:fabric-loom:1.17.17'
+    }
+}
+
+plugins {
+    id 'maven-publish'
+}
+
+// In this Minecraft generation (26.x) game jars ship already deobfuscated, so the
+// default plugin ("net.fabricmc.fabric-loom") disables remapping entirely. Older,
+// obfuscated lines (e.g. 1.21.11) must be built with the classic remapping plugin:
+//   gradle build -Plegacy_loom -Pminecraft_version=1.21.11 ...
+if (project.hasProperty("legacy_loom")) {
+    apply plugin: 'fabric-loom'
+} else {
+    apply plugin: 'net.fabricmc.fabric-loom'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+// Compatibility source sets are kept in place (same scheme as TranslateBar) in case a
+// future version line needs them. For 26.1/26.2/26.3 the same sources compile unchanged.
+sourceSets.main.java.srcDir "src/versions/${project.mc_compat}/java"
+if (project.mc_compat != "mc1211") {
+    sourceSets.main.java.srcDir "src/versions/shared26/java"
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    if (project.hasProperty("legacy_loom")) {
+        // Obfuscated lines: classic remapping with official Mojang mappings,
+        // and modImplementation so Fabric-dependent types are remapped too.
+        mappings loom.officialMojangMappings()
+        minecraft "com.mojang:minecraft:${project.minecraft_version}"
+        modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    } else {
+        minecraft "com.mojang:minecraft:${project.minecraft_version}"
+        implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+        // Compile-time only: the Mod Menu API for the optional config button (at runtime it
+        // comes from the modpack, never bundled into the jar). The config screen itself is
+        // SkyLite's own — no Cloth Config needed.
+        compileOnly files('libs/modmenu-21.0.0.jar')
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "minecraft_range", project.minecraft_range
+    inputs.property "java_dep", project.java_dep
+    inputs.property "mixin_compat", project.mixin_compat
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version,
+               "minecraft_range": project.minecraft_range,
+               "java_dep": project.java_dep
+    }
+    filesMatching("*.mixins.json") {
+        expand "mixin_compat": project.mixin_compat
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // Override for lines that run on older Java (e.g. -Pjava_release=21 for 1.21.11).
+    options.release = (project.findProperty("java_release") ?: 25) as int
+    options.encoding = 'UTF-8'
+}
