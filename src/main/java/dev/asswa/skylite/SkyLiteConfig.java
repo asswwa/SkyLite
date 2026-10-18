@@ -18,12 +18,13 @@ import java.util.List;
 public final class SkyLiteConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path PATH = FabricLoader.getInstance().getConfigDir().resolve("skylite.json");
-    private static final int CURRENT_VERSION = 7;
+    private static final int CURRENT_VERSION = 10;
 
     /**
      * 0/1 = pre-bars; 2 = minimalist bars; 3 = vanilla HUD replacement; 4 = editable colours;
      * 5 = draggable bars; 6 = appearance options, info lines and the /skylite command;
-     * 7 = per-bar width/thickness + number-background toggle.
+     * 7 = per-bar width/thickness + number-background toggle; 8 = chat highlight and filter;
+     * 9 = bar styles; 10 = optimization profiles, advisor, location rules and the FPS benchmark.
      */
     public int configVersion = 0;
 
@@ -54,6 +55,13 @@ public final class SkyLiteConfig {
      * card at hudX/hudY (the only layout before v4).
      */
     public String barLayout = "vanilla";
+
+    /**
+     * Bar look (v9): "classic" (flat, the original), "rounded" (soft corners), "capsule"
+     * (fully round ends), "gloss" (shaded fill), "minimal" (thin bar, values beside),
+     * "framed" (dark frame, recessed fill). All styles are plain rectangles, no textures.
+     */
+    public String barStyle = "classic";
 
     // Minimalist bars — the main HUD content since v2.
     public boolean showHealthBar = true;
@@ -133,6 +141,43 @@ public final class SkyLiteConfig {
     public boolean alertFlash = true;
     public List<String> alertKeywords = new ArrayList<>(List.of(
             "RARE DROP!", "CRAZY RARE DROP!", "PET DROP!"));
+
+    // --- Chat (v8) ---
+    /** Colour the player's own nickname in incoming chat messages (gold and bold). */
+    public boolean chatHighlightName = true;
+    /** Master switch for the spam cleaner below. */
+    public boolean chatFilterEnabled = true;
+    /** Also collapse identical messages that repeat within {@link ChatFilter#REPEAT_WINDOW_MS}. */
+    public boolean chatHideRepeats = false;
+    /** Incoming messages containing any of these phrases (case-insensitive) are hidden. */
+    public List<String> chatFilterPhrases = new ArrayList<>();
+
+    // --- Optimization (v10) ---
+    /**
+     * Location-based profiles: while enabled, entering a SkyBlock area applies the profile from
+     * {@link #optAreaRules} (or {@link #optAreaDefault} elsewhere). Everything stays revertible
+     * through {@link Optimizer}.
+     */
+    public boolean optAreaProfiles = false;
+    /** Rules "place=profile" matched (case-insensitive substring) against the sidebar area. */
+    public List<String> optAreaRules = new ArrayList<>(List.of("hub=perf", "dungeon=bal", "catacombs=bal"));
+    /** Profile used outside the rules: "none", "bal", "perf" or "max". */
+    public String optAreaDefault = "none";
+    /** Vanilla options captured before the first optimization change; null = nothing to restore. */
+    public OptSnapshot optRestore;
+
+    /** Snapshot of the vanilla options the optimizer may change (see {@link Optimizer}). */
+    public static final class OptSnapshot {
+        public int renderDistance;
+        public int simulationDistance;
+        public double entityDistance;
+        public String particles;
+        public String clouds;
+        public boolean entityShadows;
+        public int biomeBlend;
+        public boolean ambientOcclusion;
+        public boolean cutoutLeaves;
+    }
 
     // Parsed colour cache (transient: never written to disk).
     private transient int rgbHealth = 0xFFFF5555;
@@ -232,9 +277,21 @@ public final class SkyLiteConfig {
         if (cfg.alertKeywords == null) {
             cfg.alertKeywords = new ArrayList<>();
         }
+        if (cfg.chatFilterPhrases == null) {
+            cfg.chatFilterPhrases = new ArrayList<>();
+        }
         if (!"full".equals(cfg.numberFormat) && !"compact".equals(cfg.numberFormat)
                 && !"percent".equals(cfg.numberFormat)) {
             cfg.numberFormat = "full"; // hand-edited configs must not break the selector
+        }
+        if (!List.of("classic", "rounded", "capsule", "gloss", "minimal", "framed").contains(cfg.barStyle)) {
+            cfg.barStyle = "classic"; // hand-edited configs must not break the selector
+        }
+        if (cfg.optAreaRules == null) {
+            cfg.optAreaRules = new ArrayList<>(List.of("hub=perf", "dungeon=bal", "catacombs=bal"));
+        }
+        if (!List.of("none", "bal", "perf", "max").contains(cfg.optAreaDefault)) {
+            cfg.optAreaDefault = "none"; // hand-edited configs must not break the rules
         }
         cfg.applyColors();
         cfg.save();

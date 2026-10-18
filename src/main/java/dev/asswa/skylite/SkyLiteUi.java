@@ -12,6 +12,7 @@ import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.network.chat.Component;
 import org.joml.Matrix3x2fStack;
 
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
@@ -63,7 +64,9 @@ public final class SkyLiteUi {
     public static final String[] ICON_BARS = {".######.", ".######.", "........", ".####...", ".####...", "........", ".##.....", ".##....."};
     public static final String[] ICON_INFO = {".#..####", "........", ".#..####", "........", ".#..####"};
     public static final String[] ICON_BELL = {"...#....", "..###...", "..###...", "..###...", ".#####..", "..###...", "........", "........"};
+    public static final String[] ICON_CHAT = {".######.", "#..###.#", "#......#", ".######.", "..#....."};
     public static final String[] ICON_EYE = {"..####..", ".#....#.", "#..##..#", "#..##..#", ".#....#.", "..####.."};
+    public static final String[] ICON_BOLT = {"...###..", "..###...", ".###....", "#####...", "..###...", ".###....", "###.....", "##......"};
     public static final String[] ARROW_DOWN = {"#######.", ".#####..", "..###...", "...#...."};
     public static final String[] HEART = {".##.##..", "#######.", "#######.", ".#####..", "..###...", "...#...."};
 
@@ -155,6 +158,13 @@ public final class SkyLiteUi {
 
         @Override
         protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+            if (!this.active) { // disabled: dim, no hover
+                drawBox(g, CONTROL_BG, CONTROL_BORDER);
+                Font font = font();
+                g.text(font, label, getX() + (getWidth() - font.width(label)) / 2,
+                        textY(getY(), getHeight()), TEXT_MUTED, true);
+                return;
+            }
             boolean hover = hovered(mouseX, mouseY);
             int fill;
             int border;
@@ -225,14 +235,20 @@ public final class SkyLiteUi {
         }
     }
 
-    /** Flat dropdown: a click cycles forward through the options, a right-click goes back. */
+    /**
+     * Flat dropdown: a click expands the option list under (or above) the control, clicking an
+     * entry applies it. The list itself is drawn by the screen after all widgets — see
+     * {@link #renderList} — so no row or button can cover it.
+     */
     public static final class Dropdown extends Flat {
+        private static final int ITEM_H = 18;
         private final String[] options;
         private final Supplier<Integer> index;
         private final IntConsumer setIndex;
         private String shown;
         private int shownIndex = Integer.MIN_VALUE;
         private int shownWidth = -1;
+        private boolean open;
 
         public Dropdown(int x, int y, int w, int h, String[] options,
                         Supplier<Integer> index, IntConsumer setIndex) {
@@ -249,17 +265,80 @@ public final class SkyLiteUi {
 
         @Override
         public void onClick(MouseButtonEvent event, boolean doubleClick) {
-            if (options.length == 0) {
+            if (options.length != 0) {
+                open = !open; // a second click on the control collapses the list again
+            }
+        }
+
+        /** True while the option list is expanded. */
+        public boolean isOpen() {
+            return open;
+        }
+
+        public void close() {
+            open = false;
+        }
+
+        /**
+         * A click inside the expanded list: picks the option under the cursor and closes it.
+         * The screen calls this before dispatching clicks to the widgets.
+         */
+        public boolean clickedInList(double mx, double my, int screenH) {
+            if (!open || options.length == 0) {
+                return false;
+            }
+            int top = listTop(screenH);
+            if (mx < getX() || mx >= getX() + getWidth() || my < top || my >= top + listHeight()) {
+                return false;
+            }
+            int i = (int) Math.floor((my - (top + 1)) / (double) ITEM_H);
+            if (i >= 0 && i < options.length) {
+                setIndex.accept(i);
+            }
+            open = false;
+            return true;
+        }
+
+        /** Draws the expanded list; the screen calls it after every widget is rendered. */
+        public void renderList(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+            if (!open || options.length == 0) {
                 return;
             }
-            int step = event.button() == 3 ? -1 : 1;
-            setIndex.accept(Math.floorMod(index.get() + step, options.length));
+            int top = listTop(g.guiHeight());
+            int x = getX();
+            SkyLiteUi.box(g, x, top, getWidth(), listHeight(), PANEL_BG_SOLID, PANEL_BORDER);
+            int selected = Math.floorMod(index.get(), options.length);
+            for (int i = 0; i < options.length; i++) {
+                int iy = top + 1 + i * ITEM_H;
+                boolean over = mouseX >= x && mouseX < x + getWidth() && mouseY >= iy && mouseY < iy + ITEM_H;
+                if (over) {
+                    g.fill(x + 1, iy, x + getWidth() - 1, iy + ITEM_H, ACCENT_SOFT);
+                }
+                if (i == selected) {
+                    g.fill(x + 1, iy + 3, x + 3, iy + ITEM_H - 3, ACCENT);
+                }
+                g.text(font(), fit(options[i], getWidth() - 12), x + 7, textY(iy, ITEM_H),
+                        i == selected ? ACCENT : (over ? TEXT : TEXT_DIM), true);
+            }
+        }
+
+        /** Top edge of the list: under the control, flipped above it when there is no room. */
+        private int listTop(int screenH) {
+            int top = getY() + getHeight() + 1;
+            if (top + listHeight() > screenH - 2) {
+                top = getY() - 1 - listHeight();
+            }
+            return Math.max(2, top);
+        }
+
+        private int listHeight() {
+            return options.length * ITEM_H + 2;
         }
 
         @Override
         protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
             boolean hover = hovered(mouseX, mouseY);
-            drawBox(g, CONTROL_BG, hover ? CONTROL_BORDER_HOVER : CONTROL_BORDER);
+            drawBox(g, CONTROL_BG, open ? ACCENT_EDGE : hover ? CONTROL_BORDER_HOVER : CONTROL_BORDER);
             int i = options.length == 0 ? 0 : Math.floorMod(index.get(), options.length);
             if (i != shownIndex || getWidth() != shownWidth) {
                 shownIndex = i;
@@ -474,6 +553,60 @@ public final class SkyLiteUi {
             pose.translate(4.0F, (getHeight() - TEXT_H) / 2.0F);
             super.extractWidgetRenderState(g, mouseX, mouseY, partialTick);
             pose.popMatrix();
+        }
+    }
+
+    /** Read-only text in the control column (hints, benchmark results); right-aligned, inert. */
+    public static final class Label extends Flat {
+        private final Supplier<String> text;
+        private final int color;
+
+        public Label(int x, int y, int w, int h, Supplier<String> text, int color) {
+            super(x, y, w, h, Component.empty());
+            this.text = text;
+            this.color = color;
+            this.active = false; // never swallows clicks
+        }
+
+        @Override
+        protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+            Font font = font();
+            String value = text.get();
+            g.text(font, value, getX() + getWidth() - font.width(value),
+                    textY(getY(), getHeight()), color, true);
+        }
+    }
+
+    /** Live FPS sparkline of the benchmark: one column per slot, reads the shared sample list. */
+    public static final class Graph extends Flat {
+        private final List<Integer> samples;
+
+        public Graph(int x, int y, int w, int h, List<Integer> samples) {
+            super(x, y, w, h, Component.empty());
+            this.samples = samples;
+            this.active = false;
+        }
+
+        @Override
+        protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+            drawBox(g, CONTROL_BG, CONTROL_BORDER);
+            int innerW = getWidth() - 2;
+            int innerH = getHeight() - 2;
+            if (innerW <= 0 || innerH <= 0 || samples.isEmpty()) {
+                return;
+            }
+            int max = 60;
+            for (int sample : samples) {
+                max = Math.max(max, sample);
+            }
+            int count = samples.size();
+            int x0 = getX() + 1;
+            int y0 = getY() + 1;
+            for (int px = 0; px < innerW; px++) {
+                int sample = samples.get((int) ((long) px * count / innerW));
+                int height = Math.max(1, (int) Math.round((double) sample / max * innerH));
+                g.fill(x0 + px, y0 + innerH - height, x0 + px + 1, y0 + innerH, ACCENT_TRACK);
+            }
         }
     }
 }

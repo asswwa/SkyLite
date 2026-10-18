@@ -5,6 +5,7 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import org.joml.Matrix3x2fStack;
 
@@ -12,6 +13,12 @@ import org.joml.Matrix3x2fStack;
  * Draws the minimalist bars (health / mana / XP), the optional info lines, the FPS/ping corner
  * widget, the alert flash and the toggle toast. Everything is plain rectangles and cached
  * strings — the cheapest possible HUD work.
+ *
+ * <p>Bars come in six styles ({@link SkyLiteConfig#barStyle}): classic, rounded, capsule, gloss,
+ * minimal, framed — still plain rectangles only, no textures.
+ *
+ * <p>The panel steps aside while a GUI screen is open (inventory, chests, menus) — only the chat
+ * keeps it visible, like the vanilla HUD does.
  *
  * <p>Two layouts: {@code "vanilla"} (default) puts each bar into the spot of the HUD element
  * it replaces — hearts row on the left, hunger row on the right, the XP bar right above the
@@ -22,6 +29,12 @@ public final class HudPanel implements HudElement {
     private static final int C_BAR_TRACK = 0x80000000;
     private static final int C_PANEL_BG = 0x66000000;
     private static final int C_TEXT_BG = 0xB0000000;
+    private static final int C_FRAME = 0xB9000000;
+
+    // Where the value of a bar is drawn: inside (default) or beside it (the "minimal" style).
+    static final int SIDE_CENTER = 0;
+    static final int SIDE_LEFT = -1;
+    static final int SIDE_RIGHT = 1;
 
     // Corner-widget text and width, recomposed only when FPS or ping changes (MIN_VALUE
     // forces the first composition).
@@ -36,6 +49,9 @@ public final class HudPanel implements HudElement {
         SkyLiteConfig cfg = SkyLiteClient.config;
         if (cfg == null || mc.player == null || mc.level == null) {
             return;
+        }
+        if (mc.gui.screen() != null && !(mc.gui.screen() instanceof ChatScreen)) {
+            return; // stay out of the open GUIs; only the chat keeps the HUD, like vanilla
         }
         if (cfg.hudEnabled) {
             drawStats(g, mc.font, cfg);
@@ -70,7 +86,12 @@ public final class HudPanel implements HudElement {
 
     private static int barHeight(SkyLiteConfig cfg, int which) {
         int h = which == 0 ? cfg.hpBarHeight : which == 1 ? cfg.manaBarHeight : cfg.xpBarHeight;
-        return Math.max(2, Math.min(h, 20));
+        h = Math.max(2, Math.min(h, 20));
+        return switch (styleOf(cfg)) {
+            case "capsule" -> 13; // round caps need room to read as a capsule
+            case "minimal" -> 5;  // the thin bar is the whole point of the style
+            default -> h;
+        };
     }
 
     /**
@@ -98,16 +119,16 @@ public final class HudPanel implements HudElement {
         int xpY = a.xpY + cfg.xpBarOffsetY;
 
         if (hp) {
-            drawFlatBar(g, font, hpX, hpY, a.hpW, a.hpH, stats.healthRatio(), cfg.healthRgb(),
-                    numbers ? stats.healthText() : null, true);
+            drawStyledBar(g, font, hpX, hpY, a.hpW, a.hpH, stats.healthRatio(), cfg.healthRgb(),
+                    numbers ? stats.healthText() : null, true, textSide(cfg, 0));
         }
         if (mp) {
-            drawFlatBar(g, font, mpX, mpY, a.manaW, a.manaH, stats.manaRatio(), cfg.manaRgb(),
-                    numbers ? stats.manaText() : null, true);
+            drawStyledBar(g, font, mpX, mpY, a.manaW, a.manaH, stats.manaRatio(), cfg.manaRgb(),
+                    numbers ? stats.manaText() : null, true, textSide(cfg, 1));
         }
         if (xp) {
-            drawFlatBar(g, font, xpX, xpY, a.xpW, a.xpH, stats.xpRatio(), cfg.xpRgb(),
-                    numbers ? stats.xpText() : null, false); // the XP bar never pulses
+            drawStyledBar(g, font, xpX, xpY, a.xpW, a.xpH, stats.xpRatio(), cfg.xpRgb(),
+                    numbers ? stats.xpText() : null, false, textSide(cfg, 2)); // the XP bar never pulses
         }
 
         // Optional text lines (defense, …) follow the HP bar, like the vanished armor row.
@@ -177,21 +198,213 @@ public final class HudPanel implements HudElement {
                 center + 91 + 4, guiHeight - 16); // right of the hotbar, vertically centred on it
     }
 
-    /** One flat bar: track, coloured fill, optional value drawn inside the bar. */
-    static void drawFlatBar(GuiGraphicsExtractor g, Font font, int x, int y, int barW, int barH,
-                            float ratio, int color, String text, boolean pulse) {
-        SkyLiteConfig cfg = SkyLiteClient.config;
-        if (cfg != null && cfg.barOutline) {
-            g.fill(x - 1, y - 1, x + barW + 1, y + barH + 1, outlineOf(color));
+    /** The bar style from the config; unknown values fall back to the original flat look. */
+    static String styleOf(SkyLiteConfig cfg) {
+        return cfg == null || cfg.barStyle == null ? "classic" : cfg.barStyle;
+    }
+
+    /**
+     * Where the value of bar {@code which} (0 HP, 1 mana, 2 XP) goes for the current style:
+     * {@code "minimal"} puts the numbers beside the bars — HP on the left, mana/XP on the
+     * right — every other style keeps them inside.
+     */
+    static int textSide(SkyLiteConfig cfg, int which) {
+        if ("minimal".equals(styleOf(cfg))) {
+            return which == 0 ? SIDE_LEFT : SIDE_RIGHT;
         }
-        g.fill(x, y, x + barW, y + barH, trackColor(cfg));
-        int fill = Math.round(barW * Math.max(0.0F, Math.min(1.0F, ratio)));
-        if (fill > 0) {
-            g.fill(x, y, x + fill, y + barH, fillColor(cfg, ratio, color, pulse));
+        return SIDE_CENTER;
+    }
+
+    /** One bar in the configured style: shape first, then the value text (inside or beside). */
+    static void drawStyledBar(GuiGraphicsExtractor g, Font font, int x, int y, int barW, int barH,
+                              float ratio, int color, String text, boolean pulse, int side) {
+        drawBarShape(g, x, y, barW, barH, ratio, color, pulse);
+        if (text == null) {
+            return;
         }
-        if (text != null) {
+        if (side == SIDE_CENTER) {
             drawBarText(g, font, x, y, barW, barH, text);
+        } else {
+            drawSideText(g, font, x, y, barW, barH, text, side);
         }
+    }
+
+    /** Outline, track and fill — the styles differ here and nowhere else. */
+    private static void drawBarShape(GuiGraphicsExtractor g, int x, int y, int barW, int barH,
+                                     float ratio, int color, boolean pulse) {
+        SkyLiteConfig cfg = SkyLiteClient.config;
+        boolean outline = cfg != null && cfg.barOutline;
+        float clamped = Math.max(0.0F, Math.min(1.0F, ratio));
+        int fill = Math.round(barW * clamped);
+        int fillC = fillColor(cfg, ratio, color, pulse);
+        int track = trackColor(cfg);
+        switch (styleOf(cfg)) {
+            case "rounded" -> {
+                if (outline) {
+                    shapeRows(g, x - 1, y - 1, barW + 2, barH + 2, roundInsets(barH + 2, 3), outlineOf(color));
+                }
+                shapeRows(g, x, y, barW, barH, roundInsets(barH, 2), track);
+                if (fill >= barW) {
+                    shapeRows(g, x, y, barW, barH, roundInsets(barH, 2), fillC);
+                } else if (fill > 0) {
+                    shapeRowsLeft(g, x, y, fill, barH, roundInsets(barH, 2), fillC);
+                }
+            }
+            case "capsule" -> {
+                if (outline) {
+                    shapeRows(g, x - 1, y - 1, barW + 2, barH + 2, capsuleInsets(barH + 2), outlineOf(color));
+                }
+                shapeRows(g, x, y, barW, barH, capsuleInsets(barH), track);
+                if (fill >= barW) {
+                    shapeRows(g, x, y, barW, barH, capsuleInsets(barH), fillC);
+                } else if (fill > 0) {
+                    shapeRowsLeft(g, x, y, fill, barH, capsuleInsets(barH), fillC);
+                }
+            }
+            case "gloss" -> {
+                if (outline) {
+                    g.fill(x - 1, y - 1, x + barW + 1, y + barH + 1, outlineOf(color));
+                }
+                g.fill(x, y, x + barW, y + barH, track);
+                if (fill > 0) {
+                    g.fill(x, y, x + fill, y + barH, fillC);
+                    g.fill(x, y, x + fill, y + Math.max(3, barH / 2), lighten(fillC, 0.5F));
+                    g.fill(x, y, x + fill, y + 1, 0x64FFFFFF);
+                    g.fill(x, y + barH - 2, x + fill, y + barH, darken(fillC, 0.72F));
+                }
+            }
+            case "framed" -> {
+                g.fill(x - 2, y - 2, x + barW + 2, y + barH + 2, C_FRAME);
+                // The recess stays dark enough to read as a slot even with the track off.
+                int innerPct = cfg == null ? 50 : Math.max(35, Math.min(100, cfg.trackOpacity));
+                g.fill(x, y, x + barW, y + barH, innerPct * 255 / 100 << 24);
+                int inner = Math.round((barW - 2) * clamped);
+                if (inner > 0) {
+                    g.fill(x + 1, y + 1, x + 1 + inner, y + barH - 1, fillC);
+                }
+            }
+            default -> { // "classic" (and any unknown value): the original flat bar
+                if (outline) {
+                    g.fill(x - 1, y - 1, x + barW + 1, y + barH + 1, outlineOf(color));
+                }
+                g.fill(x, y, x + barW, y + barH, track);
+                if (fill > 0) {
+                    g.fill(x, y, x + fill, y + barH, fillC);
+                }
+            }
+        }
+    }
+
+    /** Value beside the bar ("minimal"): HP sits to the left, mana/XP to the right. */
+    private static void drawSideText(GuiGraphicsExtractor g, Font font, int x, int y, int barW, int barH,
+                                     String text, int side) {
+        SkyLiteConfig cfg = SkyLiteClient.config;
+        int textColor = cfg == null ? 0xFFFFFFFF : cfg.textRgb();
+        int tx = side == SIDE_LEFT ? x - 5 - font.width(text) : x + barW + 5;
+        g.text(font, text, tx, y + (barH - font.lineHeight) / 2, textColor, true);
+    }
+
+    // --- shape helpers: pixel insets per row, cached per bar height (bars are ≤ 20 px thin) ---
+    private static final int[][] INS_ROUNDED = new int[24][];       // radius 2
+    private static final int[][] INS_ROUNDED_OUTER = new int[24][]; // radius 3
+    private static final int[][] INS_CAPSULE = new int[24][];       // radius = half the height
+
+    /** Staircase insets for the "rounded" style: [r … 1, 0 … 0, 1 … r]. */
+    private static int[] roundInsets(int h, int r) {
+        int[][] cache = r >= 3 ? INS_ROUNDED_OUTER : INS_ROUNDED;
+        if (h < 5 || h >= cache.length) {
+            return null; // too thin to round — the plain rectangle reads better
+        }
+        if (cache[h] == null) {
+            r = Math.min(r, h / 2);
+            int[] table = new int[h];
+            for (int i = 0; i < r; i++) {
+                table[i] = r - i;
+                table[h - 1 - i] = r - i;
+            }
+            cache[h] = table;
+        }
+        return cache[h];
+    }
+
+    /** Circle insets for the "capsule" style: the ends follow a half-circle profile. */
+    private static int[] capsuleInsets(int h) {
+        if (h < 5 || h >= INS_CAPSULE.length) {
+            return null;
+        }
+        if (INS_CAPSULE[h] == null) {
+            int r = h / 2;
+            int[] table = new int[h];
+            for (int dy = 0; dy < h; dy++) {
+                int d = Math.min(dy, h - 1 - dy);
+                if (d >= r) {
+                    continue;
+                }
+                double frac = (d + 0.5) / r;
+                double v = r * (1.0 - frac);
+                table[dy] = (int) Math.round(r - Math.sqrt(Math.max(0.0, (double) r * r - v * v)));
+            }
+            INS_CAPSULE[h] = table;
+        }
+        return INS_CAPSULE[h];
+    }
+
+    /** Fills rows of width {@code w} following the inset table; both ends are rounded. */
+    private static void shapeRows(GuiGraphicsExtractor g, int x, int y, int w, int h, int[] ins, int c) {
+        if (ins == null) {
+            g.fill(x, y, x + w, y + h, c);
+            return;
+        }
+        int dy = 0;
+        while (dy < h) {
+            int ix = ins[dy];
+            int end = dy + 1;
+            while (end < h && ins[end] == ix) {
+                end++; // merge equal rows into one rectangle
+            }
+            if (x + w - ix > x + ix) {
+                g.fill(x + ix, y + dy, x + w - ix, y + end, c);
+            }
+            dy = end;
+        }
+    }
+
+    /** Same, but the right end stays square — for a partially filled bar. */
+    private static void shapeRowsLeft(GuiGraphicsExtractor g, int x, int y, int w, int h, int[] ins, int c) {
+        if (ins == null) {
+            g.fill(x, y, x + w, y + h, c);
+            return;
+        }
+        int dy = 0;
+        while (dy < h) {
+            int ix = ins[dy];
+            int end = dy + 1;
+            while (end < h && ins[end] == ix) {
+                end++;
+            }
+            if (x + w > x + ix) {
+                g.fill(x + ix, y + dy, x + w, y + end, c);
+            }
+            dy = end;
+        }
+    }
+
+    /** The fill colour blended towards white (the pulse alpha is kept). */
+    private static int lighten(int argb, float f) {
+        int a = argb & 0xFF000000;
+        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) + (255 - ((argb >> 16) & 0xFF)) * f));
+        int g2 = Math.min(255, (int) (((argb >> 8) & 0xFF) + (255 - ((argb >> 8) & 0xFF)) * f));
+        int b = Math.min(255, (int) ((argb & 0xFF) + (255 - (argb & 0xFF)) * f));
+        return a | (r << 16) | (g2 << 8) | b;
+    }
+
+    /** The fill colour darkened by the factor (the pulse alpha is kept). */
+    private static int darken(int argb, float f) {
+        int a = argb & 0xFF000000;
+        int r = (int) (((argb >> 16) & 0xFF) * f);
+        int g2 = (int) (((argb >> 8) & 0xFF) * f);
+        int b = (int) ((argb & 0xFF) * f);
+        return a | (r << 16) | (g2 << 8) | b;
     }
 
     /** Track (background) colour: black at the configured opacity. */
@@ -330,19 +543,12 @@ public final class HudPanel implements HudElement {
         }
     }
 
-    /** One bar row: track, coloured fill, optional exact value to the right. */
+    /** One bar row: the styled shape, optional exact value to the right. */
     private static void drawBar(GuiGraphicsExtractor g, Font font, int x, int y, int barW, int barH,
                                 float ratio, int color, String text, boolean pulse) {
         SkyLiteConfig cfg = SkyLiteClient.config;
         int barY = y + (font.lineHeight - barH) / 2;
-        if (cfg != null && cfg.barOutline) {
-            g.fill(x - 1, barY - 1, x + barW + 1, barY + barH + 1, outlineOf(color));
-        }
-        g.fill(x, barY, x + barW, barY + barH, trackColor(cfg));
-        int fill = Math.round(barW * Math.max(0.0F, Math.min(1.0F, ratio)));
-        if (fill > 0) {
-            g.fill(x, barY, x + fill, barY + barH, fillColor(cfg, ratio, color, pulse));
-        }
+        drawBarShape(g, x, barY, barW, barH, ratio, color, pulse);
         if (text != null) {
             int textColor = cfg == null ? 0xFFFFFFFF : cfg.textRgb();
             g.text(font, text, x + barW + 4, y, textColor, true);

@@ -80,6 +80,11 @@ public final class StatsState {
         return skyblockActive;
     }
 
+    /** Current island/area from the sidebar, or null when unknown (used by the optimizer rules). */
+    public String area() {
+        return area;
+    }
+
     public String[] lines() {
         return lines;
     }

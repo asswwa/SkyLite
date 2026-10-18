@@ -91,16 +91,16 @@ public final class SkyLiteHudEditor extends Screen {
         String xpText = stats.xpText() != null ? stats.xpText() : "Lvl 30 · 47%";
         boolean numbers = cfg.showBarNumbers;
 
-        HudPanel.drawFlatBar(g, font, hpX, hpY, a.hpW, a.hpH, ratio(stats.healthRatio(), 0.75F),
-                cfg.healthRgb(), numbers ? hpText : null, true);
+        HudPanel.drawStyledBar(g, font, hpX, hpY, a.hpW, a.hpH, ratio(stats.healthRatio(), 0.75F),
+                cfg.healthRgb(), numbers ? hpText : null, true, HudPanel.textSide(cfg, HP));
         outline(g, hpX, hpY, a.hpW, a.hpH, dragging == HP || over(mouseX, mouseY, hpX, hpY, a.hpW, a.hpH));
 
-        HudPanel.drawFlatBar(g, font, mpX, mpY, a.manaW, a.manaH, ratio(stats.manaRatio(), 0.6F),
-                cfg.manaRgb(), numbers ? mpText : null, true);
+        HudPanel.drawStyledBar(g, font, mpX, mpY, a.manaW, a.manaH, ratio(stats.manaRatio(), 0.6F),
+                cfg.manaRgb(), numbers ? mpText : null, true, HudPanel.textSide(cfg, MANA));
         outline(g, mpX, mpY, a.manaW, a.manaH, dragging == MANA || over(mouseX, mouseY, mpX, mpY, a.manaW, a.manaH));
 
-        HudPanel.drawFlatBar(g, font, xpX, xpY, a.xpW, a.xpH, ratio(stats.xpRatio(), 0.35F),
-                cfg.xpRgb(), numbers ? xpText : null, false);
+        HudPanel.drawStyledBar(g, font, xpX, xpY, a.xpW, a.xpH, ratio(stats.xpRatio(), 0.35F),
+                cfg.xpRgb(), numbers ? xpText : null, false, HudPanel.textSide(cfg, XP));
         outline(g, xpX, xpY, a.xpW, a.xpH, dragging == XP || over(mouseX, mouseY, xpX, xpY, a.xpW, a.xpH));
 
         // Defense-style lines follow the HP bar in the HUD; preview them here too.

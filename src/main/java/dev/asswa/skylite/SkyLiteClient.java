@@ -45,6 +45,7 @@ public final class SkyLiteClient implements ClientModInitializer {
     public static SkyLiteConfig config;
     public static final StatsState stats = new StatsState();
     public static final Alerts alerts = new Alerts();
+    public static final ChatFilter chat = new ChatFilter();
     public static final PingMeter pingMeter = new PingMeter();
 
     private KeyMapping toggleHudKey;
@@ -133,28 +134,32 @@ public final class SkyLiteClient implements ClientModInitializer {
         });
 
         // Action bar (overlay) texts: parse them, and optionally hide Hypixel's stats line —
-        // the SkyLite panel shows the same values.
+        // the SkyLite panel shows the same values. Normal chat: the alerts run first (a message
+        // hidden by the chat filter below still alerts), then the spam filter decides.
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
-            if (!overlay) {
-                return true;
-            }
             String plain = message.getString();
-            diagLog(true, plain);
-            stats.parseActionBar(plain);
             SkyLiteConfig cfg = config;
-            return !(cfg != null && cfg.hudEnabled && cfg.hideStatsActionBar
-                    && cfg.showHealthBar && cfg.showManaBar
-                    && stats.isOnSkyBlock() && stats.isStatsLineParsed());
-        });
-
-        // Normal chat: rare-drop / keyword alerts.
-        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (overlay) {
-                return; // overlay messages are handled above
+                diagLog(true, plain);
+                stats.parseActionBar(plain);
+                return !(cfg != null && cfg.hudEnabled && cfg.hideStatsActionBar
+                        && cfg.showHealthBar && cfg.showManaBar
+                        && stats.isOnSkyBlock() && stats.isStatsLineParsed());
             }
-            String plain = message.getString();
             diagLog(false, plain);
             alerts.onGameMessage(plain);
+            return cfg == null || chat.allow(plain);
+        });
+
+        // Nickname highlight: a rewrite of the message, so it goes through MODIFY_GAME.
+        ClientReceiveMessageEvents.MODIFY_GAME.register((message, overlay) ->
+                overlay ? message : chat.highlight(message));
+
+        // Player-chat packets (Hypixel sends everything as system chat; other servers may not):
+        // the spam filter applies, but there is no MODIFY_CHAT event, so no highlight here.
+        ClientReceiveMessageEvents.ALLOW_CHAT.register((message, signedMessage, sender, params, receptionTimestamp) -> {
+            SkyLiteConfig cfg = config;
+            return cfg == null || chat.allow(message.getString());
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -182,8 +187,13 @@ public final class SkyLiteClient implements ClientModInitializer {
             while (moveBarsKey.consumeClick()) {
                 client.setScreenAndShow(new SkyLiteHudEditor());
             }
-            if ((config.hudEnabled || config.alertsEnabled) && ++sidebarTick % 10 == 0) {
+            // The sidebar is also polled for the optimizer's location rules, even with the HUD off.
+            if (++sidebarTick % 10 == 0
+                    && (config.hudEnabled || config.alertsEnabled || config.optAreaProfiles)) {
                 stats.updateSidebar(client);
+                if (config.optAreaProfiles) {
+                    Optimizer.tickArea(client, config, stats.area());
+                }
             }
             if (++pingTick % 20 == 0) {
                 if (config.hudEnabled && config.showPingFps) {

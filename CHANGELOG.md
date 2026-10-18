@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.0] — 2026-10-18
+
+**Interface**
+- Six bar styles in the settings: classic, rounded, capsule, gloss, minimal, framed.
+- Dropdowns unfold in place as a list of options.
+- The SkyLite HUD hides itself while a GUI screen is open (the chat screen keeps it, like vanilla).
+- Every setting row in the config screen has a hover tooltip with a short explanation.
+
+**Chat**
+- Your nickname is highlighted in chat.
+- Spam filter: hide messages containing any of the chosen phrases and, optionally, exact repeats
+  that arrive within 10 seconds.
+
+**Optimization tab (new)**
+- One-click graphics profiles — Balanced / Performance / Maximum. The first apply remembers the
+  pre-optimization settings; the Rollback button restores them.
+- Advisor: what is still worth turning down (particles, clouds, entity shadows, see-through leaves,
+  biome blend, entity distance) — apply items one by one or all at once.
+- A checklist of performance mods (Sodium, EntityCulling, ImmediatelyFast, FerriteCore, ModernFix,
+  Krypton) with links to Modrinth; installed ones are marked.
+- Location profiles: apply a profile automatically per area with simple place=profile rules.
+- FPS benchmark: a 10-second measurement of the average FPS and the 1% lows, with a live graph and
+  a before/after delta.
+
 ## [0.1.5] — 2026-10-18
 
 **Interface**
