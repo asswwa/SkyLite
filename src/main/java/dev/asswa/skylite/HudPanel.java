@@ -6,8 +6,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import org.joml.Matrix3x2fStack;
+
+import java.util.Iterator;
 
 /**
  * Draws the minimalist bars (health / mana / XP), the optional info lines, the FPS/ping corner
@@ -40,8 +43,19 @@ public final class HudPanel implements HudElement {
     // forces the first composition).
     private int lastFps = Integer.MIN_VALUE;
     private int lastPing = Integer.MIN_VALUE;
+    private boolean lastLag;
     private String cornerText;
     private int cornerWidth;
+    // Scratch for the ping sparkline; refilled once per drawn frame while it is visible.
+    private final int[] pingScratch = new int[PingMeter.HISTORY];
+    // Cached bar anchors: they depend only on the GUI size and the bar sizes/style.
+    private Anchors cachedAnchors;
+    private int cachedAnchorsW = -1;
+    private int cachedAnchorsH = -1;
+    private int cachedAnchorsSig;
+    // Tab-list ping fallback, refreshed at most once a second instead of on every frame.
+    private long lastTabPingAt;
+    private int tabPing = -1;
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, DeltaTracker delta) {
@@ -50,8 +64,12 @@ public final class HudPanel implements HudElement {
         if (cfg == null || mc.player == null || mc.level == null) {
             return;
         }
-        if (mc.gui.screen() != null && !(mc.gui.screen() instanceof ChatScreen)) {
-            return; // stay out of the open GUIs; only the chat keeps the HUD, like vanilla
+        Screen screen = mc.gui.screen();
+        if (screen != null && !(screen instanceof ChatScreen)
+                && (!cfg.hudInScreens || isSkyLiteScreen(screen))) {
+            // Menus keep the HUD by default; their translucent backdrop dims it. The chat has
+            // no backdrop, and our own screens hide the HUD so it does not clutter their UI.
+            return;
         }
         if (cfg.hudEnabled) {
             drawStats(g, mc.font, cfg);
@@ -64,6 +82,12 @@ public final class HudPanel implements HudElement {
         }
         drawFlash(g, mc.font);
         drawToast(g, mc.font);
+    }
+
+    /** SkyLite's own screens hide the HUD; it would only clutter the editor and the settings. */
+    private static boolean isSkyLiteScreen(Screen screen) {
+        return screen instanceof SkyLiteConfigScreen || screen instanceof SkyLiteColorScreen
+                || screen instanceof SkyLiteHudEditor || screen instanceof SkyLiteDropsScreen;
     }
 
     private void drawStats(GuiGraphicsExtractor g, Font font, SkyLiteConfig cfg) {
@@ -79,12 +103,12 @@ public final class HudPanel implements HudElement {
     }
 
     /** Bar 0 = HP, 1 = mana, 2 = XP. Sizes come from the config with sane limits. */
-    private static int barWidth(SkyLiteConfig cfg, int which) {
+    static int barWidth(SkyLiteConfig cfg, int which) {
         int w = which == 0 ? cfg.hpBarWidth : which == 1 ? cfg.manaBarWidth : cfg.xpBarWidth;
         return Math.max(40, Math.min(w, 320));
     }
 
-    private static int barHeight(SkyLiteConfig cfg, int which) {
+    static int barHeight(SkyLiteConfig cfg, int which) {
         int h = which == 0 ? cfg.hpBarHeight : which == 1 ? cfg.manaBarHeight : cfg.xpBarHeight;
         h = Math.max(2, Math.min(h, 20));
         return switch (styleOf(cfg)) {
@@ -108,7 +132,7 @@ public final class HudPanel implements HudElement {
             return;
         }
 
-        Anchors a = anchors(g.guiWidth(), g.guiHeight(), cfg);
+        Anchors a = anchorsFor(g.guiWidth(), g.guiHeight(), cfg);
         boolean numbers = cfg.showBarNumbers;
 
         int hpX = a.hpX + cfg.hpBarOffsetX;
@@ -131,14 +155,57 @@ public final class HudPanel implements HudElement {
                     numbers ? stats.xpText() : null, false, textSide(cfg, 2)); // the XP bar never pulses
         }
 
-        // Optional text lines (defense, …) follow the HP bar, like the vanished armor row.
-        if (lines.length > 0) {
-            int[] colors = stats.colors();
-            int lineH = font.lineHeight + 1;
-            int ly = hpY - 1 - lines.length * lineH;
-            for (int i = 0; i < lines.length; i++) {
-                g.text(font, lines[i], hpX, ly + i * lineH, colors[i], true);
+        // Optional text lines (defense, effect timers, …) start above the HP bar, like the
+        // vanished armor row; since v17 every line can be moved anywhere. The shared helper
+        // caps the untouched ones so the stacked rows never leave the screen (v14).
+        drawInfoLines(g, font, cfg, stats, hpX, hpY);
+    }
+
+    /**
+     * Draws the info lines. Untouched lines sit stacked above the HP bar (nearest to the bars
+     * survive when the configured cap, {@link SkyLiteConfig#infoLinesMax}, runs out); every
+     * line moved in the editor (v17) is drawn at its own spot and never capped. A moved effect
+     * list is anchored by its top and grows downwards.
+     */
+    static void drawInfoLines(GuiGraphicsExtractor g, Font font, SkyLiteConfig cfg, StatsState stats,
+                              int hpX, int hpY) {
+        String[] lines = stats.lines();
+        int[] kinds = stats.lineKinds();
+        if (lines.length == 0 || kinds.length != lines.length || cfg == null) {
+            return;
+        }
+        int lineH = font.lineHeight + 1;
+        int max = cfg.infoLinesMax;
+        int[] colors = stats.colors();
+        // The cap keeps the stacked rows nearest to the bars: count them and skip the
+        // topmost ones (v14). Moved lines are never capped (v17).
+        int unmovedTotal = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (cfg.lineOffsetX(kinds[i]) == 0 && cfg.lineOffsetY(kinds[i]) == 0) {
+                unmovedTotal++;
             }
+        }
+        int skipUnmoved = max > 0 ? Math.max(0, unmovedTotal - max) : 0;
+        int member = 0;  // index inside the current kind (only the effect list has several)
+        int prevKind = -1;
+        for (int i = 0; i < lines.length; i++) {
+            int kind = kinds[i];
+            if (kind != prevKind) {
+                member = 0;
+                prevKind = kind;
+            }
+            int offX = cfg.lineOffsetX(kind);
+            int offY = cfg.lineOffsetY(kind);
+            boolean moved = offX != 0 || offY != 0;
+            if (!moved && skipUnmoved > 0) {
+                skipUnmoved--;
+                member++;
+                continue;
+            }
+            int x = moved ? hpX + offX : hpX;
+            int y = moved ? hpY - 1 + offY + member * lineH : hpY - 1 - (lines.length - i) * lineH;
+            g.text(font, lines[i], x, y, colors[i], true);
+            member++;
         }
     }
 
@@ -196,6 +263,25 @@ public final class HudPanel implements HudElement {
         return new Anchors(hpX, center + 91 - manaW, rowY, center - xpW / 2, xpY,
                 hpW, manaW, xpW, hpH, manaH, xpH,
                 center + 91 + 4, guiHeight - 16); // right of the hotbar, vertically centred on it
+    }
+
+    /**
+     * {@link #anchors} cached across frames: the values change only on a resize or when the
+     * config's bar sizes/style change, so the per-frame render does no allocation here.
+     */
+    private Anchors anchorsFor(int guiWidth, int guiHeight, SkyLiteConfig cfg) {
+        int sig = (cfg.barStyle == null ? 0 : cfg.barStyle.hashCode());
+        sig = ((sig * 31 + cfg.hpBarWidth) * 31 + cfg.manaBarWidth) * 31 + cfg.xpBarWidth;
+        sig = ((sig * 31 + cfg.hpBarHeight) * 31 + cfg.manaBarHeight) * 31 + cfg.xpBarHeight;
+        if (cachedAnchors != null && guiWidth == cachedAnchorsW && guiHeight == cachedAnchorsH
+                && sig == cachedAnchorsSig) {
+            return cachedAnchors;
+        }
+        cachedAnchorsW = guiWidth;
+        cachedAnchorsH = guiHeight;
+        cachedAnchorsSig = sig;
+        cachedAnchors = anchors(guiWidth, guiHeight, cfg);
+        return cachedAnchors;
     }
 
     /** The bar style from the config; unknown values fall back to the original flat look. */
@@ -562,7 +648,7 @@ public final class HudPanel implements HudElement {
         if (text == null || !stats.isOnSkyBlock()) {
             return;
         }
-        Anchors a = anchors(g.guiWidth(), g.guiHeight(), cfg);
+        Anchors a = anchorsFor(g.guiWidth(), g.guiHeight(), cfg);
         drawSpeedPlate(g, font, a.speedX + cfg.speedOffsetX, a.speedY + cfg.speedOffsetY, text, cfg);
     }
 
@@ -585,15 +671,25 @@ public final class HudPanel implements HudElement {
         int ping = SkyLiteClient.pingMeter.ping();
         if (ping <= 0 && mc.player != null && mc.getConnection() != null) {
             // Fallback for servers where the status ping is blocked: the tab-list value.
-            PlayerInfo info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
-            if (info != null && info.getLatency() > 0) {
-                ping = info.getLatency();
+            // The tab data changes slowly, so the lookup runs once a second, not every frame.
+            long now = System.currentTimeMillis();
+            if (now - lastTabPingAt >= 1000L) {
+                lastTabPingAt = now;
+                PlayerInfo info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
+                tabPing = info != null ? info.getLatency() : -1;
+            }
+            if (tabPing > 0) {
+                ping = tabPing;
             }
         }
-        if (fps != lastFps || ping != lastPing) {
+        boolean lag = ping > 0 && cfg.lagBadge
+                && ping >= Math.max(50, Math.min(1000, cfg.lagThresholdMs));
+        if (fps != lastFps || ping != lastPing || lag != lastLag) {
             lastFps = fps;
             lastPing = ping;
-            cornerText = ping < 0 ? "FPS " + fps : "FPS " + fps + "  ·  " + ping + " ms";
+            lastLag = lag;
+            String base = ping < 0 ? "FPS " + fps : "FPS " + fps + "  ·  " + ping + " ms";
+            cornerText = lag ? "LAG " + base : base; // v15: red prefix once the ping is too high
             cornerWidth = font.width(cornerText);
         }
         int x = switch (cfg.pingFpsCorner) {
@@ -604,7 +700,51 @@ public final class HudPanel implements HudElement {
             case LEFT_TOP, RIGHT_TOP -> 4;
             default -> g.guiHeight() - font.lineHeight - 4;
         };
-        g.text(font, cornerText, x, y, cfg.textRgb(), true);
+        if (lag) {
+            String prefix = "LAG ";
+            g.text(font, prefix, x, y, 0xFFFF6B6B, true);
+            g.text(font, cornerText.substring(prefix.length()), x + font.width(prefix), y,
+                    cfg.textRgb(), true);
+        } else {
+            g.text(font, cornerText, x, y, cfg.textRgb(), true);
+        }
+
+        if (cfg.showPingGraph) {
+            drawPingGraph(g, font, cfg, x, y);
+        }
+    }
+
+    /**
+     * The ping sparkline: the last {@link PingMeter#HISTORY} measured round trips as thin bars,
+     * coloured by latency (green / yellow / red). Drawn under the FPS/ping text in top corners
+     * and above it in bottom corners; nothing at all until two samples have arrived.
+     */
+    private void drawPingGraph(GuiGraphicsExtractor g, Font font, SkyLiteConfig cfg, int textX, int textY) {
+        int count = SkyLiteClient.pingMeter.copyHistory(pingScratch);
+        if (count < 2) {
+            return;
+        }
+        int w = Math.max(48, Math.min(72, cornerWidth));
+        int h = 12;
+        boolean right = cfg.pingFpsCorner == SkyLiteConfig.Corner.RIGHT_TOP
+                || cfg.pingFpsCorner == SkyLiteConfig.Corner.RIGHT_BOTTOM;
+        boolean bottom = cfg.pingFpsCorner == SkyLiteConfig.Corner.LEFT_BOTTOM
+                || cfg.pingFpsCorner == SkyLiteConfig.Corner.RIGHT_BOTTOM;
+        int x = right ? Math.max(4, textX + cornerWidth - w) : textX;
+        int y = bottom ? textY - h - 3 : textY + font.lineHeight + 3;
+        g.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0x66000000);
+        // One rectangle per sample (≤ 20) instead of one per pixel column (up to 72).
+        for (int i = 0; i < count; i++) {
+            int value = pingScratch[i];
+            if (value <= 0) {
+                continue;
+            }
+            int x0 = x + (int) ((long) i * w / count);
+            int x1 = x + (int) ((long) (i + 1) * w / count);
+            int barH = Math.max(1, Math.min(h, value * h / 300));
+            int color = value < 80 ? 0xFF55FF55 : value < 160 ? 0xFFFFD24A : 0xFFFF6B6B;
+            g.fill(x0, y + h - barH, x1, y + h, color);
+        }
     }
 
     private void drawFlash(GuiGraphicsExtractor g, Font font) {
@@ -621,20 +761,40 @@ public final class HudPanel implements HudElement {
         int alpha = (int) (120 + 110 * Math.abs(Math.sin(now / 90.0)));
         int color = (alpha << 24) | 0xFFAA00;
         int x = (g.guiWidth() - font.width(text)) / 2;
-        g.text(font, text, x, g.guiHeight() / 5, color, true);
+        int y = g.guiHeight() / 5;
+        SkyLiteConfig cfg = SkyLiteClient.config;
+        if (cfg == null || cfg.toastBackground) {
+            // v14: a dark pill keeps the alert readable over bright terrain
+            g.fill(x - 4, y - 2, x + font.width(text) + 4, y + font.lineHeight + 1, 0x80000000);
+        }
+        g.text(font, text, x, y, color, true);
     }
 
     private void drawToast(GuiGraphicsExtractor g, Font font) {
         Alerts alerts = SkyLiteClient.alerts;
-        String text = alerts.toastLine;
-        if (text == null) {
+        long now = System.currentTimeMillis();
+        alerts.pruneToasts(now);
+        if (alerts.toasts.isEmpty()) {
             return;
         }
-        if (System.currentTimeMillis() >= alerts.toastUntil) {
-            alerts.toastLine = null;
-            return;
+        SkyLiteConfig cfg = SkyLiteClient.config;
+        int max = cfg == null ? 2 : Math.max(1, Math.min(3, cfg.toastMax));
+        boolean background = cfg == null || cfg.toastBackground;
+        // Newest first, so the fresh message stays at the familiar spot right above the hotbar
+        // and older ones stack upwards (v13).
+        int y = g.guiHeight() - 68;
+        int drawn = 0;
+        for (Iterator<Alerts.Toast> it = alerts.toasts.descendingIterator();
+                it.hasNext() && drawn < max; ) {
+            Alerts.Toast toast = it.next();
+            int w = font.width(toast.text);
+            int x = (g.guiWidth() - w) / 2;
+            if (background) {
+                g.fill(x - 4, y - 2, x + w + 4, y + font.lineHeight + 1, 0x80000000);
+            }
+            g.text(font, toast.text, x, y, 0xFFFFFFFF, true);
+            y -= 12;
+            drawn++;
         }
-        int x = (g.guiWidth() - font.width(text)) / 2;
-        g.text(font, text, x, g.guiHeight() - 68, 0xFFFFFFFF, true);
     }
 }

@@ -19,10 +19,17 @@ public final class PingMeter {
     private static final int INTERVAL_MS = 3000;
     private static final int TIMEOUT_MS = 2500;
     private static final int DEFAULT_PORT = 25565;
+    /** How many recent samples the sparkline keeps (≈ one minute at the 3 s interval). */
+    public static final int HISTORY = 20;
 
     private volatile String target; // "host" or "host:port"; null when not on a server
     private volatile int ping = -1; // -1 = no data yet
     private boolean started;
+
+    // Sparkline ring, oldest → newest; guarded by "this" (written by the meter thread).
+    private final int[] history = new int[HISTORY];
+    private int historyPos;   // next write slot
+    private int historyCount; // valid entries, ≤ HISTORY
 
     /** Latest measured round trip in milliseconds; -1 until the first measurement lands. */
     public int ping() {
@@ -34,6 +41,12 @@ public final class PingMeter {
      * {@code target} is {@code host} or {@code host:port}; null disconnects the meter.
      */
     public void updateTarget(String target) {
+        if (!java.util.Objects.equals(this.target, target)) {
+            synchronized (this) {
+                historyPos = 0;
+                historyCount = 0; // a new server (or disconnecting) starts the sparkline over
+            }
+        }
         this.target = target;
         if (target == null) {
             ping = -1;
@@ -54,6 +67,7 @@ public final class PingMeter {
                 int measured = measure(target);
                 if (measured > 0) {
                     ping = measured; // a failed cycle keeps the last good value
+                    record(measured); // …but only successful ones enter the sparkline
                 }
             }
             try {
@@ -62,6 +76,26 @@ public final class PingMeter {
                 Thread.currentThread().interrupt();
                 return;
             }
+        }
+    }
+
+    /**
+     * Copies the recent samples (oldest → newest) into {@code out}; returns how many landed.
+     * One synchronized 20-int copy per drawn frame — cheap and consistent.
+     */
+    public synchronized int copyHistory(int[] out) {
+        int n = Math.min(historyCount, out.length);
+        for (int i = 0; i < n; i++) {
+            out[i] = history[(historyPos - n + i + 2 * HISTORY) % HISTORY];
+        }
+        return n;
+    }
+
+    private synchronized void record(int value) {
+        history[historyPos] = value;
+        historyPos = (historyPos + 1) % HISTORY;
+        if (historyCount < HISTORY) {
+            historyCount++;
         }
     }
 

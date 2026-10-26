@@ -10,6 +10,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import org.joml.Matrix3x2fStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,8 @@ public final class SkyLiteConfigScreen extends Screen {
     private static final int HEADER_H = 36; // content header: title + separator; rows start below
     private static final int FOOTER_H = 36; // content footer: separator + buttons
     private static final int NAV_H = 24;    // sidebar entry height
+    private static final int PREVIEW_PAD = 6; // inner padding of the Bars-tab preview card
+    private static final int PREVIEW_GAP = 3; // vertical gap between the preview bars
 
     /** Sidebar categories; the rows of each category live in {@link #buildRows()}. */
     private enum Cat {
@@ -58,8 +61,22 @@ public final class SkyLiteConfigScreen extends Screen {
     private boolean rebuildPending;
     private EditBox keywordsBox;
     private EditBox chatFilterBox;
+    private EditBox chatRulesBox;
+    private EditBox chatRulesIgnoreBox;
     private EditBox areaRulesBox;
+    private EditBox searchBox;
+    /** Live filter of the row list (v13); persisted across category switches. */
+    private String searchQuery = "";
     private double scroll;
+
+    // v18: ready-made chat-rule sets inserted by the "filter presets" buttons. The rules stay
+    // ordinary editable text in the rules field — a preset just saves the typing.
+    private static final String[] PRESET_VISITS = {
+            "visit my island => hide", "island is open => hide", "/visit => hide"};
+    private static final String[] PRESET_GIVEAWAYS = {
+            "giveaway => hide", "giving away => hide", "drop party => hide"};
+    private static final String[] PRESET_LOBBY = {
+            "joined the lobby => hide", "left the lobby => hide", "sending you to => hide"};
 
     // FPS benchmark of the "Optimization" tab (per screen lifetime; the sample list is live).
     private static final long BENCH_DURATION_NS = 10_000_000_000L;
@@ -86,6 +103,9 @@ public final class SkyLiteConfigScreen extends Screen {
         super(Component.literal("SkyLite"));
         this.parent = parent;
         this.cfg = cfg;
+        // v14: the last benchmark result survives closing the screen and restarting the game
+        this.benchPrevAvg = cfg.benchLastAvg;
+        this.benchPrevLow = cfg.benchLastLow;
     }
 
     /** Entry point used by the command and the Mod Menu hook; {@code parent} may be null. */
@@ -132,6 +152,8 @@ public final class SkyLiteConfigScreen extends Screen {
         rows.clear();
         keywordsBox = null;
         chatFilterBox = null;
+        chatRulesBox = null;
+        chatRulesIgnoreBox = null;
         areaRulesBox = null;
         buildWidgets();
     }
@@ -156,6 +178,15 @@ public final class SkyLiteConfigScreen extends Screen {
                     tr(cat.navKey), cat == current, () -> openCategory(cat)));
             navY += NAV_H;
         }
+
+        // v13: live search over the rows, sitting in the content header so it never scrolls.
+        int searchW = Math.max(88, Math.min(150, conW / 3));
+        searchBox = new SkyLiteUi.Field(this.font, conX + conW - SkyLiteUi.PAD - searchW, sideY + 10,
+                searchW, 16);
+        searchBox.setMaxLength(40);
+        searchBox.setHint(Component.translatable("skylite.config.search_hint"));
+        searchBox.setValue(searchQuery);
+        addRenderableWidget(searchBox);
 
         buildRows();
     }
@@ -193,29 +224,83 @@ public final class SkyLiteConfigScreen extends Screen {
                 toggleRow("skylite.config.bars.pulse", () -> cfg.lowValuePulse, v -> cfg.lowValuePulse = v);
             }
             case INFO -> {
+                toggleRow("skylite.config.info.labels", () -> cfg.infoLabels, v -> cfg.infoLabels = v);
                 toggleRow("skylite.config.info.defense", () -> cfg.showDefense, v -> cfg.showDefense = v);
                 toggleRow("skylite.config.info.area", () -> cfg.showArea, v -> cfg.showArea = v);
                 toggleRow("skylite.config.info.cookie", () -> cfg.showCookie, v -> cfg.showCookie = v);
                 toggleRow("skylite.config.info.godpot", () -> cfg.showGodPot, v -> cfg.showGodPot = v);
+                toggleRow("skylite.config.info.coords", () -> cfg.showCoords, v -> cfg.showCoords = v);
+                toggleRow("skylite.config.info.clock", () -> cfg.showClock, v -> cfg.showClock = v);
+                toggleRow("skylite.config.info.session", () -> cfg.showSession, v -> cfg.showSession = v);
+                toggleRow("skylite.config.info.drops", () -> cfg.showDrops, v -> cfg.showDrops = v);
+                toggleRow("skylite.config.info.afk", () -> cfg.showAfk, v -> cfg.showAfk = v);
                 toggleRow("skylite.config.info.purse", () -> cfg.showPurse, v -> cfg.showPurse = v);
                 toggleRow("skylite.config.info.bits", () -> cfg.showBits, v -> cfg.showBits = v);
                 toggleRow("skylite.config.info.speed", () -> cfg.showSpeed, v -> cfg.showSpeed = v);
                 toggleRow("skylite.config.info.ping_fps", () -> cfg.showPingFps, v -> cfg.showPingFps = v);
+                toggleRow("skylite.config.info.ping_graph", () -> cfg.showPingGraph, v -> cfg.showPingGraph = v);
+                toggleRow("skylite.config.info.lag_badge", () -> cfg.lagBadge, v -> cfg.lagBadge = v);
+                sliderRow("skylite.config.info.lag_threshold", 50, 1000, () -> cfg.lagThresholdMs, v -> cfg.lagThresholdMs = v);
+                toggleRow("skylite.config.info.effects", () -> cfg.showEffects, v -> cfg.showEffects = v);
+                sliderRow("skylite.config.info.effects_max", 1, 8, () -> cfg.effectsMax, v -> cfg.effectsMax = v);
+                toggleRow("skylite.config.info.effect_warn", () -> cfg.effectWarn, v -> cfg.effectWarn = v);
+                sliderRow("skylite.config.info.effect_warn_sec", 10, 60, () -> cfg.effectWarnSeconds, v -> cfg.effectWarnSeconds = v);
+                sliderRow("skylite.config.info.lines_max", 0, 16, () -> cfg.infoLinesMax, v -> cfg.infoLinesMax = v);
                 cornerRow();
             }
             case ALERTS -> {
                 toggleRow("skylite.config.alerts.enabled", () -> cfg.alertsEnabled, v -> cfg.alertsEnabled = v);
                 toggleRow("skylite.config.alerts.sound", () -> cfg.alertSound, v -> cfg.alertSound = v);
+                chimeRow();
+                sliderRow("skylite.config.alerts.volume", 0, 100, () -> cfg.alertVolume, v -> cfg.alertVolume = v);
+                chimeTestRow();
                 toggleRow("skylite.config.alerts.flash", () -> cfg.alertFlash, v -> cfg.alertFlash = v);
+                sliderRow("skylite.config.alerts.flash_ms", 400, 8000, () -> cfg.alertFlashMs, v -> cfg.alertFlashMs = v);
+                toggleRow("skylite.config.alerts.toast", () -> cfg.alertToast, v -> cfg.alertToast = v);
+                toggleRow("skylite.config.alerts.toast_bg", () -> cfg.toastBackground, v -> cfg.toastBackground = v);
+                sliderRow("skylite.config.alerts.toast_max", 1, 3, () -> cfg.toastMax, v -> cfg.toastMax = v);
+                sliderRow("skylite.config.alerts.toast_ms", 400, 8000, () -> cfg.toastMs, v -> cfg.toastMs = v);
+                sliderRow("skylite.config.alerts.cooldown", 0, 3000, () -> cfg.alertCooldownMs, v -> cfg.alertCooldownMs = v);
+                toggleRow("skylite.config.alerts.dedup", () -> cfg.alertDedup, v -> cfg.alertDedup = v);
                 keywordsRow();
+                noteRow(tr("skylite.config.alerts.more"));
+                toggleRow("skylite.config.alerts.low_hp", () -> cfg.lowHpAlert, v -> cfg.lowHpAlert = v);
+                sliderRow("skylite.config.alerts.low_hp_pct", 5, 90, () -> cfg.lowHpPercent, v -> cfg.lowHpPercent = v);
+                toggleRow("skylite.config.alerts.low_mana", () -> cfg.lowManaAlert, v -> cfg.lowManaAlert = v);
+                sliderRow("skylite.config.alerts.low_mana_pct", 5, 90, () -> cfg.lowManaPercent, v -> cfg.lowManaPercent = v);
+                toggleRow("skylite.config.alerts.inv_warn", () -> cfg.invWarn, v -> cfg.invWarn = v);
+                sliderRow("skylite.config.alerts.inv_warn_slots", 0, 10, () -> cfg.invWarnSlots, v -> cfg.invWarnSlots = v);
+                toggleRow("skylite.config.alerts.kick", () -> cfg.kickAlert, v -> cfg.kickAlert = v);
+                toggleRow("skylite.config.alerts.buff_warn", () -> cfg.buffWarn, v -> cfg.buffWarn = v);
+                noteRow(tr("skylite.config.alerts.presets"));
+                toggleRow("skylite.config.alerts.preset_party", () -> cfg.presetParty, v -> cfg.presetParty = v);
+                toggleRow("skylite.config.alerts.preset_trade", () -> cfg.presetTrade, v -> cfg.presetTrade = v);
+                toggleRow("skylite.config.alerts.preset_visit", () -> cfg.presetVisit, v -> cfg.presetVisit = v);
+                toggleRow("skylite.config.alerts.preset_inventory", () -> cfg.presetInventory, v -> cfg.presetInventory = v);
+                toggleRow("skylite.config.alerts.preset_restart", () -> cfg.presetRestart, v -> cfg.presetRestart = v);
+                toggleRow("skylite.config.alerts.preset_rare_catch", () -> cfg.presetRareCatch, v -> cfg.presetRareCatch = v);
+                toggleRow("skylite.config.alerts.drop_shot", () -> cfg.dropScreenshot, v -> cfg.dropScreenshot = v);
+                dropLogRow();
             }
             case CHAT -> {
                 toggleRow("skylite.config.chat.highlight", () -> cfg.chatHighlightName, v -> cfg.chatHighlightName = v);
+                toggleRow("skylite.config.chat.mention", () -> cfg.mentionAlert, v -> cfg.mentionAlert = v);
                 toggleRow("skylite.config.chat.filter", () -> cfg.chatFilterEnabled, v -> cfg.chatFilterEnabled = v);
                 toggleRow("skylite.config.chat.repeats", () -> cfg.chatHideRepeats, v -> cfg.chatHideRepeats = v);
+                toggleRow("skylite.config.chat.timestamps", () -> cfg.chatTimestamps, v -> cfg.chatTimestamps = v);
+                toggleRow("skylite.config.chat.session_coins", () -> cfg.sessionCoinsChat, v -> cfg.sessionCoinsChat = v);
                 phrasesRow();
+                noteRow(tr("skylite.config.chat.rules.note"));
+                rulesRow();
+                rulesIgnoreRow();
+                noteRow(tr("skylite.config.chat.presets"));
+                presetRow("skylite.config.chat.preset_visits", PRESET_VISITS);
+                presetRow("skylite.config.chat.preset_giveaways", PRESET_GIVEAWAYS);
+                presetRow("skylite.config.chat.preset_lobby", PRESET_LOBBY);
+                noteRow(tr("skylite.config.chat.rules.hint"));
             }
             case HUD -> {
+                toggleRow("skylite.config.hud.in_screens", () -> cfg.hudInScreens, v -> cfg.hudInScreens = v);
                 toggleRow("skylite.config.hud.hearts", () -> cfg.hideVanillaHearts, v -> cfg.hideVanillaHearts = v);
                 toggleRow("skylite.config.hud.hunger", () -> cfg.hideVanillaFoodBar, v -> cfg.hideVanillaFoodBar = v);
                 toggleRow("skylite.config.hud.xp_bar", () -> cfg.hideVanillaXpBar, v -> cfg.hideVanillaXpBar = v);
@@ -223,6 +308,7 @@ public final class SkyLiteConfigScreen extends Screen {
             }
             case OPTIMIZE -> optimizeRows();
         }
+        applyFilter(); // newly built rows must respect the live search (v13)
     }
 
     /** The "Optimization" tab: one-click profiles, advisor, mod tips, location rules, FPS benchmark. */
@@ -298,6 +384,8 @@ public final class SkyLiteConfigScreen extends Screen {
         areaRulesBox.setMaxLength(400);
         areaRulesBox.setValue(joinList(cfg.optAreaRules));
         addRow(tr("skylite.opt.area.rules"), areaRulesBox, ctrlW, tipFor("skylite.opt.area.rules"));
+        // v14: live status of the rules field — the first broken entry is named right away.
+        addRow("", new SkyLiteUi.Label(0, 0, ctrlW, 20, this::areaRulesStateText, SkyLiteUi.TEXT_DIM), ctrlW);
         noteRow(tr("skylite.opt.area.hint"));
 
         noteRow(tr("skylite.opt.section.bench"));
@@ -367,10 +455,17 @@ public final class SkyLiteConfigScreen extends Screen {
         List<Integer> sorted = new ArrayList<>(benchSamples);
         sorted.sort(null);
         int slowest = sorted.size() - Math.max(1, sorted.size() / 100);
-        benchPrevAvg = benchAvg;
-        benchPrevLow = benchLow;
+        if (benchAvg >= 0) {
+            // Shift the session's previous result only when there is one; a fresh screen keeps
+            // the persisted value so the first measurement shows the delta to it (v14).
+            benchPrevAvg = benchAvg;
+            benchPrevLow = benchLow;
+        }
         benchAvg = (int) (sum / benchSamples.size());
         benchLow = sorted.get(Math.min(sorted.size() - 1, slowest));
+        cfg.benchLastAvg = benchAvg;
+        cfg.benchLastLow = benchLow;
+        cfg.save(); // a measurement is rare, saving right away is fine (v14)
     }
 
     private String benchCurrentText() {
@@ -495,6 +590,31 @@ public final class SkyLiteConfigScreen extends Screen {
         addRow(tr("skylite.config.info.corner"), dropdown, ctrlW, tipFor("skylite.config.info.corner"));
     }
 
+    /** Alert chime picker (v13); picking one plays it right away for a quick impression. */
+    private void chimeRow() {
+        String[] ids = {"bell", "pling", "orb", "click"};
+        String[] labels = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            labels[i] = tr("skylite.config.alerts.chime_" + ids[i]);
+        }
+        SkyLiteUi.Dropdown dropdown = new SkyLiteUi.Dropdown(0, 0, ctrlW, 20, labels,
+                () -> indexOf(ids, cfg.alertChime),
+                i -> {
+                    cfg.alertChime = ids[i];
+                    SkyLiteClient.alerts.previewChime();
+                });
+        addRow(tr("skylite.config.alerts.chime"), dropdown, ctrlW, tipFor("skylite.config.alerts.chime"));
+    }
+
+    /** "Test" button of the chime row: plays the current sound at the current volume (v13). */
+    private void chimeTestRow() {
+        int width = Math.min(96, ctrlW);
+        addRow(tr("skylite.config.alerts.chime_test"), new SkyLiteUi.Btn(0, 0, width, 20,
+                tr("skylite.config.alerts.test"), SkyLiteUi.Btn.NEUTRAL,
+                () -> SkyLiteClient.alerts.previewChime()), width,
+                tipFor("skylite.config.alerts.chime_test"));
+    }
+
     private void keywordsRow() {
         keywordsBox = new SkyLiteUi.Field(this.font, 0, 0, ctrlW, 20);
         keywordsBox.setMaxLength(400);
@@ -509,6 +629,94 @@ public final class SkyLiteConfigScreen extends Screen {
         chatFilterBox.setValue(joinList(cfg.chatFilterPhrases));
         addRow(tr("skylite.config.chat.phrases"), chatFilterBox, ctrlW,
                 tipFor("skylite.config.chat.phrases"));
+    }
+
+    /** "phrase => action" rules live in one field, separated by semicolons. */
+    private void rulesRow() {
+        chatRulesBox = new SkyLiteUi.Field(this.font, 0, 0, ctrlW, 20);
+        chatRulesBox.setMaxLength(400);
+        chatRulesBox.setValue(joinRules(cfg.chatRules));
+        addRow(tr("skylite.config.chat.rules"), chatRulesBox, ctrlW,
+                tipFor("skylite.config.chat.rules"));
+    }
+
+    /** The "skip the rules when the message contains …" field (v15). */
+    private void rulesIgnoreRow() {
+        chatRulesIgnoreBox = new SkyLiteUi.Field(this.font, 0, 0, ctrlW, 20);
+        chatRulesIgnoreBox.setMaxLength(400);
+        chatRulesIgnoreBox.setValue(joinList(cfg.chatRulesIgnore));
+        addRow(tr("skylite.config.chat.rules_ignore"), chatRulesIgnoreBox, ctrlW,
+                tipFor("skylite.config.chat.rules_ignore"));
+    }
+
+    /** One filter-preset row (v18): a label and an "Add" button that fills the rules field. */
+    private void presetRow(String key, String[] preset) {
+        int width = Math.min(96, ctrlW);
+        addRow(tr(key), new SkyLiteUi.Btn(0, 0, width, 20, tr("skylite.config.chat.preset_add"),
+                SkyLiteUi.Btn.NEUTRAL, () -> addRulesPreset(preset)), width, tipFor(key));
+    }
+
+    /**
+     * Appends a preset's rules that are not in the rules field yet. The result is ordinary rule
+     * text — the action can be edited afterwards ("hide" to "hl", "sound", …). Applied live.
+     */
+    private void addRulesPreset(String[] preset) {
+        if (chatRulesBox == null) {
+            return;
+        }
+        String current = chatRulesBox.getValue();
+        StringBuilder out = new StringBuilder(current.trim());
+        for (String rule : preset) {
+            int arrow = rule.indexOf("=>");
+            String phrase = (arrow < 0 ? rule : rule.substring(0, arrow)).trim();
+            if (ChatFilter.indexOfIgnoreCase(current, phrase, 0) >= 0) {
+                continue; // already present: added before or typed by hand
+            }
+            if (out.length() > 0) {
+                out.append("; ");
+            }
+            out.append(rule);
+        }
+        chatRulesBox.setValue(out.toString());
+        cfg.chatRules = splitRules(out.toString()); // live: the filter applies them at once
+    }
+
+    /** Opens the rare-drop journal; the current fields are saved first, like the HUD editor does. */
+    private void dropLogRow() {
+        int width = Math.min(96, ctrlW);
+        addRow(tr("skylite.config.alerts.drops"), new SkyLiteUi.Btn(0, 0, width, 20,
+                tr("skylite.config.alerts.drops_open"), SkyLiteUi.Btn.NEUTRAL, () -> {
+                    saveAll();
+                    Minecraft.getInstance().setScreenAndShow(new SkyLiteDropsScreen(this));
+                }), width, tipFor("skylite.config.alerts.drops"));
+    }
+
+    /** Semicolon-joined rules of the config list, for display in a text field. */
+    private static String joinRules(List<String> values) {
+        StringBuilder out = new StringBuilder();
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && !value.isBlank()) {
+                    if (out.length() > 0) {
+                        out.append("; ");
+                    }
+                    out.append(value.trim());
+                }
+            }
+        }
+        return out.toString();
+    }
+
+    /** Splits a semicolon-separated field value into trimmed non-empty rules. */
+    private static List<String> splitRules(String value) {
+        List<String> list = new ArrayList<>();
+        for (String part : value.split(";")) {
+            String entry = part.trim();
+            if (!entry.isEmpty()) {
+                list.add(entry);
+            }
+        }
+        return list;
     }
 
     /** Comma-joined non-blank entries of a list, for display in a text field. */
@@ -539,6 +747,31 @@ public final class SkyLiteConfigScreen extends Screen {
         return list;
     }
 
+    /**
+     * Status line under the location-rules field (v14): names the first rule whose place or
+     * profile the mod cannot read, so a typo does not silently do nothing.
+     */
+    private String areaRulesStateText() {
+        if (areaRulesBox == null) {
+            return "";
+        }
+        List<String> rules = splitList(areaRulesBox.getValue());
+        if (rules.isEmpty()) {
+            return tr("skylite.opt.area.rules.none");
+        }
+        for (String rule : rules) {
+            int eq = rule.indexOf('=');
+            String place = eq < 0 ? "" : rule.substring(0, eq).trim();
+            String profile = eq < 0 ? "" : rule.substring(eq + 1).trim();
+            boolean ok = eq > 0 && !place.isEmpty()
+                    && ("none".equalsIgnoreCase(profile) || Optimizer.byId(profile) != null);
+            if (!ok) {
+                return Component.translatable("skylite.opt.area.rules.bad", rule).getString();
+            }
+        }
+        return tr("skylite.opt.area.rules.ok");
+    }
+
     private static int indexOf(String[] values, String value) {
         for (int i = 0; i < values.length; i++) {
             if (values[i].equals(value)) {
@@ -546,6 +779,33 @@ public final class SkyLiteConfigScreen extends Screen {
             }
         }
         return 0;
+    }
+
+    /**
+     * Applies the search box text to every row (v13): a row matches when the query appears in
+     * its label or its hover explanation. Called on query change and after building rows.
+     */
+    private void applyFilter() {
+        String query = searchQuery == null ? "" : searchQuery.trim();
+        boolean all = query.isEmpty();
+        for (Row row : rows) {
+            if (all) {
+                row.match = true;
+                continue;
+            }
+            row.match = ChatFilter.indexOfIgnoreCase(row.label, query, 0) >= 0
+                    || (row.tip != null && ChatFilter.indexOfIgnoreCase(row.tip, query, 0) >= 0);
+        }
+    }
+
+    private int matchCount() {
+        int n = 0;
+        for (Row row : rows) {
+            if (row.match) {
+                n++;
+            }
+        }
+        return n;
     }
 
     @Override
@@ -558,27 +818,47 @@ public final class SkyLiteConfigScreen extends Screen {
         tickBench();
         if (rebuildPending) {
             rebuildPending = false;
-            rebuildContents();
+            rebuildContents(); // recreates the search box with the current query
+        }
+        if (searchBox != null) {
+            String query = searchBox.getValue();
+            if (!query.equals(searchQuery)) {
+                searchQuery = query;
+                applyFilter();
+                scroll = 0;
+            }
         }
 
-        // Place the row controls at their scrolled spot; rows outside the view are hidden.
-        int areaH = Math.max(1, rowsBottom - rowsTop);
-        int contentH = rows.size() * SkyLiteUi.ROW_H;
+        // Place the row controls at their scrolled spot; rows outside the view are hidden and
+        // rows filtered out by the search are skipped entirely (v13).
+        int top = listTop();
+        int areaH = Math.max(1, rowsBottom - top);
+        int contentH = matchCount() * SkyLiteUi.ROW_H;
         double maxScroll = Math.max(0, contentH - areaH);
         scroll = Math.max(0, Math.min(scroll, maxScroll));
-        int y0 = rowsTop - (int) Math.round(scroll);
-        for (int i = 0; i < rows.size(); i++) {
-            Row row = rows.get(i);
-            int y = y0 + i * SkyLiteUi.ROW_H;
+        int y0 = top - (int) Math.round(scroll);
+        int shown = 0;
+        for (Row row : rows) {
+            if (!row.match) {
+                if (row.widget != null) {
+                    row.widget.visible = false;
+                }
+                continue;
+            }
+            int y = y0 + shown * SkyLiteUi.ROW_H;
+            shown++;
             if (row.widget == null) {
                 continue; // note rows are text only
             }
             row.widget.setX(conX + conW - SkyLiteUi.PAD - row.width);
             row.widget.setY(y + 1);
-            row.widget.visible = y >= rowsTop && y + SkyLiteUi.ROW_H <= rowsBottom;
+            row.widget.visible = y >= top && y + SkyLiteUi.ROW_H <= rowsBottom;
         }
 
         drawChrome(g);
+        if (current == Cat.BARS) {
+            drawBarPreview(g);
+        }
         drawRows(g, y0, areaH, contentH, maxScroll);
         super.extractRenderState(g, mouseX, mouseY, partialTick);
 
@@ -604,28 +884,145 @@ public final class SkyLiteConfigScreen extends Screen {
 
         SkyLiteUi.panel(g, conX, sideY, conW, sideH);
         g.text(font, tr(current.titleKey), conX + SkyLiteUi.PAD, sideY + 12, SkyLiteUi.TEXT, true);
+        // v14: how many settings the current query found, right next to the search box.
+        if (searchBox != null && !searchQuery.isBlank()) {
+            String found = Component.translatable("skylite.config.search_found", matchCount()).getString();
+            int fx = searchBox.getX() - 6 - font.width(found);
+            if (fx > conX + SkyLiteUi.PAD + font.width(tr(current.titleKey)) + 8) {
+                g.text(font, found, fx, SkyLiteUi.textY(searchBox.getY(), searchBox.getHeight()),
+                        SkyLiteUi.TEXT_MUTED, true);
+            }
+        }
         g.fill(conX + 1, sideY + 31, conX + conW - 1, sideY + 32, SkyLiteUi.SEP);
         int footSep = sideY + sideH - FOOTER_H;
         g.fill(conX + 1, footSep, conX + conW - 1, footSep + 1, SkyLiteUi.SEP);
     }
 
+    /** The row list starts under the live preview on the Bars tab. */
+    private int listTop() {
+        return rowsTop + previewHeight();
+    }
+
+    /** Height of the preview card: the three bars at their configured heights plus padding. */
+    private int previewHeight() {
+        if (current != Cat.BARS) {
+            return 0;
+        }
+        int bars = HudPanel.barHeight(cfg, 0) + HudPanel.barHeight(cfg, 1) + HudPanel.barHeight(cfg, 2);
+        return bars + 2 * PREVIEW_GAP + 2 * PREVIEW_PAD;
+    }
+
+    /**
+     * Live preview of the three bars with the current settings. It goes through the same
+     * {@link HudPanel#drawStyledBar} the HUD uses, so colours, style, thickness, outline, track
+     * opacity, number format and glyphs are exactly what the game will show. Wide bars are
+     * scaled down to fit the content panel.
+     */
+    private void drawBarPreview(GuiGraphicsExtractor g) {
+        int x = conX + SkyLiteUi.PAD;
+        int y = rowsTop;
+        int w = conW - 2 * SkyLiteUi.PAD;
+        int h = previewHeight();
+        SkyLiteUi.box(g, x, y, w, h, SkyLiteUi.CONTROL_BG, SkyLiteUi.CONTROL_BORDER);
+
+        boolean numbers = cfg.showBarNumbers;
+        boolean side = "minimal".equals(HudPanel.styleOf(cfg));
+        String hpText = numbers ? sampleValue("842/1,164", "842", "72", "❤ ", cfg) : null;
+        String mpText = numbers ? sampleValue("273/450", "273", "61", "✎ ", cfg) : null;
+        String xpText = numbers ? sampleXp(cfg) : null;
+
+        int hpW = HudPanel.barWidth(cfg, 0);
+        int mpW = HudPanel.barWidth(cfg, 1);
+        int xpW = HudPanel.barWidth(cfg, 2);
+        int hpH = HudPanel.barHeight(cfg, 0);
+        int mpH = HudPanel.barHeight(cfg, 1);
+        int xpH = HudPanel.barHeight(cfg, 2);
+
+        // "minimal" keeps the values beside the bars — reserve that text in the layout too.
+        int leftExtra = side && hpText != null ? 5 + font.width(hpText) : 0;
+        int mpExtra = side && mpText != null ? 5 + font.width(mpText) : 0;
+        int xpExtra = side && xpText != null ? 5 + font.width(xpText) : 0;
+        int need = leftExtra + Math.max(hpW, Math.max(mpW + mpExtra, xpW + xpExtra));
+        float scale = Math.min(1.0F, (w - 2 * PREVIEW_PAD) / (float) need);
+        int totalH = hpH + mpH + xpH + 2 * PREVIEW_GAP;
+
+        Matrix3x2fStack pose = g.pose();
+        pose.pushMatrix();
+        pose.translate(x + PREVIEW_PAD, y + (h - totalH * scale) / 2.0F);
+        pose.scale(scale, scale);
+        int by = 0;
+        HudPanel.drawStyledBar(g, font, leftExtra, by, hpW, hpH, 0.72F, cfg.healthRgb(),
+                hpText, false, HudPanel.textSide(cfg, 0));
+        by += hpH + PREVIEW_GAP;
+        HudPanel.drawStyledBar(g, font, leftExtra, by, mpW, mpH, 0.61F, cfg.manaRgb(),
+                mpText, false, HudPanel.textSide(cfg, 1));
+        by += mpH + PREVIEW_GAP;
+        HudPanel.drawStyledBar(g, font, leftExtra, by, xpW, xpH, 0.63F, cfg.xpRgb(),
+                xpText, false, HudPanel.textSide(cfg, 2));
+        pose.popMatrix();
+    }
+
+    /** Sample numbers in the configured format, mirroring {@link StatsState}'s value styles. */
+    private static String sampleValue(String full, String compact, String percent, String glyph, SkyLiteConfig cfg) {
+        String body = switch (cfg.numberFormat) {
+            case "compact" -> compact;
+            case "percent" -> percent + "%";
+            default -> full;
+        };
+        return cfg.showGlyphs ? glyph + body : body;
+    }
+
+    private static String sampleXp(SkyLiteConfig cfg) {
+        return switch (cfg.numberFormat) {
+            case "compact" -> "Lvl 42";
+            case "percent" -> "63%";
+            default -> "Lvl 42 · 63%";
+        };
+    }
+
     /** Row labels and the scrollbar. */
     private void drawRows(GuiGraphicsExtractor g, int y0, int areaH, int contentH, double maxScroll) {
-        for (int i = 0; i < rows.size(); i++) {
-            Row row = rows.get(i);
-            int y = y0 + i * SkyLiteUi.ROW_H;
-            if (y < rowsTop || y + SkyLiteUi.ROW_H > rowsBottom) {
+        int top = listTop();
+        int shown = 0;
+        String query = searchQuery == null ? "" : searchQuery.trim();
+        for (Row row : rows) {
+            if (!row.match) {
                 continue;
             }
-            g.text(font, row.label, conX + SkyLiteUi.PAD, SkyLiteUi.textY(y + 1, 20),
-                    row.note ? SkyLiteUi.TEXT_MUTED : SkyLiteUi.TEXT_DIM, true);
+            int y = y0 + shown * SkyLiteUi.ROW_H;
+            shown++;
+            if (y < top || y + SkyLiteUi.ROW_H > rowsBottom) {
+                continue;
+            }
+            int labelX = conX + SkyLiteUi.PAD;
+            int labelY = SkyLiteUi.textY(y + 1, 20);
+            int color = row.note ? SkyLiteUi.TEXT_MUTED : SkyLiteUi.TEXT_DIM;
+            // v14: the matching part of the label lights up while the search is active.
+            int hit = query.isEmpty() || row.label.isEmpty()
+                    ? -1
+                    : ChatFilter.indexOfIgnoreCase(row.label, query, 0);
+            if (hit < 0) {
+                g.text(font, row.label, labelX, labelY, color, true);
+                continue;
+            }
+            String before = row.label.substring(0, hit);
+            String match = row.label.substring(hit, Math.min(row.label.length(), hit + query.length()));
+            String after = row.label.substring(Math.min(row.label.length(), hit + query.length()));
+            g.text(font, before, labelX, labelY, color, true);
+            int matchX = labelX + font.width(before);
+            g.text(font, match, matchX, labelY, SkyLiteUi.ACCENT, true);
+            g.text(font, after, matchX + font.width(match), labelY, color, true);
+        }
+        if (shown == 0 && !searchQuery.isBlank()) {
+            g.text(font, tr("skylite.config.search_empty"), conX + SkyLiteUi.PAD,
+                    SkyLiteUi.textY(top + 2, 20), SkyLiteUi.TEXT_MUTED, true);
         }
 
         if (maxScroll > 0) {
             int barX = conX + conW - 6;
-            g.fill(barX, rowsTop, barX + 2, rowsBottom, SkyLiteUi.SCROLL_TRACK);
+            g.fill(barX, top, barX + 2, rowsBottom, SkyLiteUi.SCROLL_TRACK);
             int thumbH = Math.max(16, areaH * areaH / Math.max(1, contentH));
-            int thumbY = rowsTop + (int) ((areaH - thumbH) * (scroll / maxScroll));
+            int thumbY = top + (int) ((areaH - thumbH) * (scroll / maxScroll));
             g.fill(barX, thumbY, barX + 2, thumbY + thumbH, SkyLiteUi.SCROLL_THUMB);
         }
     }
@@ -638,16 +1035,20 @@ public final class SkyLiteConfigScreen extends Screen {
         if (openDropdown() != null) {
             return;
         }
-        if (mouseX < conX || mouseX > conX + conW || mouseY < rowsTop || mouseY > rowsBottom) {
+        if (mouseX < conX || mouseX > conX + conW || mouseY < listTop() || mouseY > rowsBottom) {
             return;
         }
-        for (int i = 0; i < rows.size(); i++) {
-            Row row = rows.get(i);
+        int shown = 0;
+        for (Row row : rows) {
+            if (!row.match) {
+                continue;
+            }
+            int y = y0 + shown * SkyLiteUi.ROW_H;
+            shown++;
             if (row.tip == null) {
                 continue;
             }
-            int y = y0 + i * SkyLiteUi.ROW_H;
-            if (y < rowsTop || y + SkyLiteUi.ROW_H > rowsBottom) {
+            if (y < listTop() || y + SkyLiteUi.ROW_H > rowsBottom) {
                 continue;
             }
             int labelX = conX + SkyLiteUi.PAD;
@@ -728,6 +1129,14 @@ public final class SkyLiteConfigScreen extends Screen {
         if (event.isEscape() && closeDropdowns()) {
             return true; // the first Esc only collapses an open option list
         }
+        if (event.isEscape() && searchBox != null && searchBox.isFocused()
+                && !searchBox.getValue().isEmpty()) {
+            searchBox.setValue(""); // v14: Esc clears the search before it closes the screen
+            searchQuery = "";
+            applyFilter();
+            scroll = 0;
+            return true;
+        }
         return super.keyPressed(event);
     }
 
@@ -766,7 +1175,7 @@ public final class SkyLiteConfigScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         closeDropdowns(); // an open list would otherwise stay glued to a scrolled-away row
-        if (mouseX >= conX && mouseX <= conX + conW && mouseY >= rowsTop && mouseY <= rowsBottom) {
+        if (mouseX >= conX && mouseX <= conX + conW && mouseY >= listTop() && mouseY <= rowsBottom) {
             scroll -= scrollY * SkyLiteUi.ROW_H;
             return true;
         }
@@ -801,6 +1210,12 @@ public final class SkyLiteConfigScreen extends Screen {
         if (chatFilterBox != null) {
             cfg.chatFilterPhrases = splitList(chatFilterBox.getValue());
         }
+        if (chatRulesBox != null) {
+            cfg.chatRules = splitRules(chatRulesBox.getValue());
+        }
+        if (chatRulesIgnoreBox != null) {
+            cfg.chatRulesIgnore = splitList(chatRulesIgnoreBox.getValue());
+        }
         if (areaRulesBox != null) {
             cfg.optAreaRules = splitList(areaRulesBox.getValue());
         }
@@ -826,6 +1241,7 @@ public final class SkyLiteConfigScreen extends Screen {
         final int width;
         final String tip;            // hover explanation; null when the row has none
         final boolean note;
+        boolean match = true;        // filtered out by the search box when false (v13)
 
         Row(String label, AbstractWidget widget, int width) {
             this(label, widget, width, null);

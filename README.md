@@ -2,7 +2,7 @@
 
 > ⚠️ **Early alpha.** The mod is at an early stage of development and may be unstable: expect bugs and notable changes between versions.
 
-A tiny, performance-first client-side Fabric mod for Minecraft Java: a compact HUD for Hypixel SkyBlock. HP, mana and XP bars (six styles) instead of the vanilla elements, info lines from the sidebar (Defense, area, Cookie Buff and God Potion timers, purse, bits), a Speed % plate, FPS and real ping in a corner, rare-drop alerts, chat tools, and an Optimization tab with one-click graphics profiles. Everything is drawn from values the server already sends to your client — no mixins, no textures, no packets of its own.
+A tiny, performance-first client-side Fabric mod for Minecraft Java: a compact HUD for Hypixel SkyBlock. HP, mana and XP bars (six styles) instead of the vanilla elements, info lines from the sidebar (Defense, area, Cookie Buff and God Potion timers, purse, bits, potion effects, coordinates, session stats), a Speed % plate, FPS and real ping in a corner, rare-drop alerts and a drop journal, chat tools, and an Optimization tab with one-click graphics profiles. Everything is drawn from values the server already sends to your client — no mixins, no textures, no packets of its own.
 
 Supported game version: **26.3** (Fabric).
 
@@ -11,14 +11,15 @@ Supported game version: **26.3** (Fabric).
 ## Features
 
 - **HP / mana / XP bars instead of the vanilla HUD.** Six styles (classic, rounded, capsule, gloss, minimal, framed); each bar can take over the spot of the element it replaces (hearts, hunger, XP bar): the value is drawn inside the bar (full / compact / percent), optional ❤ ✎ glyphs, outline, low-value pulse, adjustable width and thickness per bar.
-- **In-game editor (F8).** Drag the bars and the Speed plate anywhere; wheel resizes the hovered bar (Ctrl+wheel — its thickness), right-click opens the colour picker. Soft snapping to the vanilla spot and to the screen centre; the layout survives GUI-scale and window-size changes.
+- **In-game editor (F8).** Drag the bars, the Speed plate and every info line; wheel resizes the hovered bar (Ctrl+wheel — its thickness), right-click opens the colour picker. The arrow keys nudge the selection by 1 px (Shift — 10), double-click resets it; soft snapping to the vanilla spot and the screen centre. The layout survives GUI-scale and window-size changes.
 - **Speed % plate.** SkyBlock's Speed stat as a bare percentage — movable in the editor, toggleable in the settings.
-- **Info lines.** Defense, area/island, Cookie Buff and God Potion timers, purse, bits — parsed from the sidebar and action bar, each line on its own toggle.
-- **FPS and real ping.** In any corner. The ping is measured with the same tiny status request the multiplayer server list uses, on a background thread — because Hypixel spoofs the tab-list ping on game servers (it always reads “1”).
-- **Alerts (F7).** A sound and an on-screen flash when a chat message contains any of your keywords (`RARE DROP!`, …); keywords are comma-separated.
-- **Chat tools.** Your nickname is highlighted in chat; a filter can hide chosen phrases and exact repeats arriving within 10 seconds.
-- **Optimization tab.** One-click vanilla-graphics profiles (Balanced / Performance / Maximum) with a rollback to the pre-optimization state, an advisor for whatever is still worth turning down, suggested performance mods, per-location profile rules and a 10-second FPS benchmark.
-- **Its own config screen.** A flat dark UI with a category sidebar (Bars, Info lines, Alerts, Chat, Vanilla HUD, Optimization) and a modal colour picker — vanilla widgets only, no Cloth Config; Mod Menu is optional and only adds an entry button. Every setting has a hover tooltip with a short explanation.
+- **Info lines.** Defense, area/island, Cookie Buff and God Potion timers, purse, bits, active potion effects, coordinates, real-time clock, session time, AFK timer and session drops — parsed from the sidebar and action bar; each line is its own draggable block with an optional label. A line limit (0–16) trims the stack by screen height.
+- **FPS and real ping.** In any corner, with an optional LAG badge when ping passes a configurable threshold. The ping is measured with the same tiny status request the multiplayer server list uses, on a background thread — because Hypixel spoofs the tab-list ping on game servers (it always reads “1”).
+- **Alerts (F7).** Choose the sound (bell, pling, XP orb, click), volume and duration; alerts queue instead of overlapping, with a cooldown, duplicate suppression and a dark toast/flash background. Built-in alerts for Cookie Buff/God Pot expiry, potion effects, low HP/mana, a full inventory, nickname mentions and a kick to Limbo/lobby, plus presets for party invites, trades, visits, server restarts and `RARE CATCH`.
+- **Rare-drop journal.** Every rare drop is logged with the time and area; open it with `/skylite drops` or from the Alerts tab. Optional screenshot on a rare drop.
+- **Chat tools.** Your nickname is highlighted; an optional alert fires on mentions. Chat timestamps, a spam filter, custom `phrase => sound+toast+hl+hide` rules with an ignore list, and ready-made filter presets for visit ads, giveaways and lobby messages.
+- **Optimization tab.** One-click vanilla-graphics profiles (Balanced / Performance / Maximum) with a rollback to the pre-optimization state, an advisor for whatever is still worth turning down, suggested performance mods, per-location profile rules (validated live) and a 10-second FPS benchmark that remembers the previous result and shows the difference.
+- **Its own config screen.** A flat dark UI with a category sidebar (Bars, Info lines, Alerts, Chat, Vanilla HUD, Optimization) and a modal colour picker — vanilla widgets only, no Cloth Config; Mod Menu is optional and only adds an entry button. Every setting has a hover tooltip; the search box highlights matches and shows a result count.
 - **Localized.** English and Russian UI.
 
 ## Keys & commands
@@ -27,9 +28,9 @@ Supported game version: **26.3** (Fabric).
 | --- | --- |
 | `F6` | toggle the whole SkyLite HUD |
 | `F7` | toggle alerts |
-| `F8` | open the bar/Speed editor (rebindable in Controls) |
+| `F8` | open the HUD editor — bars, Speed plate and info lines (rebindable in Controls) |
 
-`/skylite` — config screen · `/skylite edit` — editor · `/skylite hud`, `/skylite alerts` — toggles.
+`/skylite` — config screen · `/skylite edit` — editor · `/skylite hud`, `/skylite alerts` — toggles · `/skylite drops` — rare-drop journal · `/skylite session reset` — reset session stats.
 
 ## Requirements
 
@@ -52,7 +53,7 @@ Optional: **Mod Menu** — adds a SkyLite button to the in-game mod list (SkyLit
 JDK 25 and Gradle are required. For now the only target is 26.3:
 
 ```bash
-bash tools/build_all.sh   # → dist/skylite-0.2.0+26.3.jar
+bash tools/build_all.sh   # → dist/skylite-0.3.0+26.3.jar
 ```
 
 `libs/modmenu-21.0.0.jar` is a compile-time-only dependency (the Mod Menu entry button) and is never bundled into the jar.

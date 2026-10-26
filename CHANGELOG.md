@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.0] — 2026-10-27
+
+**HUD and info lines**
+- Potion-effect timers: active effects with mm:ss countdowns, a configurable list limit and
+  orange/red warning colours as they run out.
+- Coordinates, real-time clock, session time, AFK timer and a session-drops line
+  (`Drops: 3 · 12m`).
+- Every info line is its own draggable block in the editor (F8): drag it, nudge it with the
+  arrow keys (Shift — 10 px), double-click to return it to the stack; moved lines ignore the
+  stack limit.
+- Optional line labels (`Purse:`, `XYZ:`, …) — off by default, so values are bare numbers.
+- Info-line limit slider (0–16) with automatic trimming by screen height; rows near the bars
+  keep priority.
+- LAG badge in the FPS/ping widget when ping passes a configurable threshold.
+- The editor shows pixel offsets and resets the selected bar's position and size on
+  double-click; the arrow keys fine-tune it.
+
+**Alerts and the drop journal**
+- Alert sound picker (bell, pling, XP orb, click), volume and a test button; sounds no longer
+  overlap — 400 ms spacing, up to four queued.
+- Configurable flash/toast duration and an optional dark background behind toasts and flashes.
+- Toast queue: several alerts stack instead of overwriting each other.
+- Alert cooldown (0–3000 ms) and duplicate suppression for the same text within 10 seconds.
+- New warnings: Cookie Buff / God Pot expiring in under 5 minutes, potion effects about to
+  expire, inventory almost full and nickname mentions.
+- Alert presets for party invites, trade requests, island visits, a full inventory, server
+  restarts and `RARE CATCH`.
+- Rare-drop journal (`/skylite drops` or the Alerts tab): what dropped, when and where; optional
+  screenshot on a rare drop.
+
+**Chat**
+- Chat timestamps (`[HH:MM]`), including Hypixel system messages.
+- Nickname mention alert; your own messages and their server echoes are ignored.
+- Chat rules can combine actions (`sound+toast+hl+hide`) and skip messages via an ignore list.
+- Ready-made filter presets for island-visit ads, giveaways and lobby join/leave.
+
+**Settings and polish**
+- Settings search with match highlighting, a “found: N” counter and Esc to clear.
+- FPS benchmark stores the result and shows the difference from the previous run.
+- Location-profile rules are validated live (“bad rule: …”).
+
 ## [0.2.0] — 2026-10-18
 
 **Interface**
